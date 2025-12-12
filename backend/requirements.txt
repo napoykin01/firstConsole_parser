@@ -1,3 +1,7 @@
+lxml
+pydantic-settings
+pydantic
+requests
 fastapi==0.124.2
 uvicorn[standard]==0.38.0
 sqlalchemy==2.0.45
