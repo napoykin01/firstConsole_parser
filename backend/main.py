@@ -9,6 +9,7 @@ from api.v1.routes.categories import router as categories_router
 from api.v1.routes.products import router as products_router
 from api.v1.routes.database import router as database_router
 from api.v1.routes.load_all_data import router as load_all_data_router
+from api.v1.routes.yandex_parser import router as yandex_parser_router
 
 from models import models
 
@@ -42,5 +43,7 @@ app.include_router(products_router, prefix="/api/v1", tags=["Данные с Net
 
 app.include_router(database_router, prefix="/api/v1", tags=["Загрузка данных с Netlab"])
 app.include_router(load_all_data_router, prefix="/api/v1", tags=["Загрузка данных с Netlab"])
+
+app.include_router(yandex_parser_router, prefix="/api/v1", tags=["Парсинг в Яндекс"])
 
 models.Base.metadata.create_all(bind=engine)

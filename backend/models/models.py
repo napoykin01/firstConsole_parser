@@ -19,9 +19,9 @@ class Category(Base):
     catalog_id = Column(Integer, ForeignKey("catalogs.id"))
     leaf = Column(Boolean, default=False)
 
-    children = relationship("Category", backref=backref("parent", remote_side=[id]))
-    catalog = relationship("Catalog", back_populates="categories")
     products = relationship("Product", back_populates="category")
+    catalog = relationship("Catalog", back_populates="categories")
+    children = relationship("Category", backref=backref("parent", remote_side=[id]))
 
 class Product(Base):
     __tablename__ = "products"
@@ -35,4 +35,18 @@ class Product(Base):
 
     additional_info = Column(JSON)
 
+    yandex_sources = relationship("YandexSource",
+                                  back_populates="product",
+                                  cascade="all, delete-orphan")
     category = relationship("Category", back_populates="products")
+
+class YandexSource(Base):
+    __tablename__ = "yandex_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    price = Column(Float, nullable=False)
+    url = Column(String, nullable=False)
+    source_name = Column(String)
+
+    product = relationship("Product", back_populates="yandex_sources")

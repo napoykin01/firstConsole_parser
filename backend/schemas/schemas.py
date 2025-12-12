@@ -2,12 +2,22 @@ from typing import List
 from pydantic import BaseModel, ConfigDict
 
 
+class YandexSourceResponse(BaseModel):
+    id: int
+    price: float
+    url: str
+    source_name: str | None
+
+    class Config:
+        from_attributes = True
+
 class ProductResponse(BaseModel):
     id: int
     netlab_id: int
     part_number: str | None
     name: str
     netlab_price: float | None
+    yandex_sources: List[YandexSourceResponse] = []
 
     class Config:
         from_attributes = True

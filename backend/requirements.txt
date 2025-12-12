@@ -1,3 +1,7 @@
+tldextract
+playwright
+beautifulsoup4
+requests
 fastapi
 sqlalchemy
 pydantic
