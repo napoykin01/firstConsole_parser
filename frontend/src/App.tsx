@@ -1,3 +1,4 @@
+import DashboardPage from "./pages/DashboardPage.tsx";
 
 
 function App() {
@@ -5,7 +6,7 @@ function App() {
   return (
     <>
       <div>
-          DASHBOARD
+          <DashboardPage/>
       </div>
     </>
   )
