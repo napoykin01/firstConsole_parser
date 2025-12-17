@@ -23,6 +23,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                                                        catalogId
                                                    }) => {
     const [categories, setCategories] = useState<CategoryOnly[]>([]);
+    const [displayCategories, setDisplayCategories] = useState<CategoryOnly[]>([]);
     const [selectedCategories, setSelectedCategories] = useState<number[]>(initialSelectedCategories);
     const [searchTerm, setSearchTerm] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -78,6 +79,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
     useEffect(() => {
         if (catalogId) {
             setCategories([]);
+            setDisplayCategories([]);
             setSelectedCategories([]);
             setExpandedCategories([]);
             setCatsStats(new Map());
@@ -90,6 +92,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
     const fetchCategories = useCallback(async () => {
         if (!catalogId || !catalogName) {
             setCategories([]);
+            setDisplayCategories([]);
             return;
         }
 
@@ -104,12 +107,14 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
 
             if (response && response.length > 0) {
                 setCategories(response);
+                setDisplayCategories(response);
                 const rootIds = response
                     .filter(cat => cat?.parent_id === null)
                     .map(cat => cat.id);
                 setExpandedCategories(rootIds);
             } else {
                 setCategories([]);
+                setDisplayCategories([]);
                 setError('Категории не найдены');
             }
 
@@ -127,6 +132,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
         } else if (isOpen && !catalogId) {
             setError('Сначала выберите каталог');
             setCategories([]);
+            setDisplayCategories([]);
         }
     }, [isOpen, catalogId, catalogName, fetchCategories]);
 
@@ -145,7 +151,8 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                         .map(stat => stat.category_id)
                 );
 
-                const filterEmptyCategories = (cats: CategoryOnly[]): CategoryOnly[] => {
+                const filterEmptyCategories
+                    = (cats: CategoryOnly[]): CategoryOnly[] => {
                     return cats
                         .filter(cat => {
                             if (!cat) return false;
@@ -171,7 +178,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                 };
 
                 const filteredCategories = filterEmptyCategories([...categories]);
-                setCategories(filteredCategories);
+                setDisplayCategories(filteredCategories);
 
                 const map = new Map(statsArr.map(s => [s.category_id, s]));
                 setCatsStats(map);
@@ -226,7 +233,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
     };
 
     const handleSelectAll = () => {
-        const allLeafIds = getAllLeafCategoryIds(categories);
+        const allLeafIds = getAllLeafCategoryIds(displayCategories);
         const limitedIds = allLeafIds.slice(0, 10);
         setSelectedCategories(limitedIds);
 
@@ -252,7 +259,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
 
     const { filteredCategories, hasResults } = useMemo(() => {
         if (!searchTerm.trim()) {
-            return { filteredCategories: categories, hasResults: true };
+            return { filteredCategories: displayCategories, hasResults: true };
         }
 
         const searchResults: CategoryOnly[] = [];
@@ -271,8 +278,8 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
             });
         };
 
-        if (categories.length > 0) {
-            findCategories(categories);
+        if (displayCategories.length > 0) {
+            findCategories(displayCategories);
         }
 
         if (searchResults.length > 0) {
@@ -289,7 +296,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
             filteredCategories: searchResults,
             hasResults: searchResults.length > 0
         };
-    }, [categories, searchTerm]);
+    }, [displayCategories, searchTerm]);
 
     const renderCategoryItem = (c: CategoryOnly, level = 0) => {
         if (!c) return null;
@@ -354,7 +361,8 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                     >
                         <div
                             className={`w-8 h-8 rounded-lg flex items-center justify-center mr-3 transition-colors ${
-                                isSelected ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600 group-hover:bg-gray-200'
+                                isSelected ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600 ' +
+                                    'group-hover:bg-gray-200'
                             }`}
                         >
                             {isLeaf ? <MdCategory className="w-4 h-4" /> : <TbCategory2 className="w-4 h-4" />}
@@ -362,7 +370,8 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
 
                         <div className="flex-1 min-w-0 text-left">
                             <div className="flex items-center justify-between">
-                            <span className={`truncate text-sm font-medium ${isSelected ? 'text-blue-700' : 'text-gray-800'}`}>
+                            <span className={`truncate text-sm font-medium 
+                            ${isSelected ? 'text-blue-700' : 'text-gray-800'}`}>
                                 {c.name}
                             </span>
                                 {isSelected && <FiCheck className="ml-2 text-blue-600" size={16} />}
@@ -450,7 +459,8 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                             </div>
                             <button
                                 onClick={onClose}
-                                className="p-2 hover:bg-gray-200 rounded-xl transition-all duration-200 cursor-pointer"
+                                className="p-2 hover:bg-gray-200 rounded-xl transition-all
+                                duration-200 cursor-pointer"
                             >
                                 <FiX className="w-5 h-5 text-red-500" />
                             </button>
@@ -460,28 +470,36 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                     <div className="p-4">
                         {!catalogId ? (
                             <div className="text-center py-10">
-                                <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4 shadow-inner">
+                                <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100
+                                rounded-full mb-4 shadow-inner">
                                     <MdViewTimeline className="w-8 h-8 text-gray-500" />
                                 </div>
                                 <h3 className="text-lg font-bold text-gray-900 mb-2">Каталог не выбран</h3>
-                                <p className="text-sm text-gray-600 mb-6">Выберите каталог в хедере для фильтрации категорий</p>
+                                <p className="text-sm text-gray-600 mb-6">
+                                    Выберите каталог в хедере для фильтрации категорий
+                                </p>
                                 <button
                                     onClick={onClose}
-                                    className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 font-semibold shadow-md hover:shadow-lg"
+                                    className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white
+                                    rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300
+                                    font-semibold shadow-md hover:shadow-lg"
                                 >
                                     Закрыть
                                 </button>
                             </div>
                         ) : error ? (
                             <div className="text-center py-10">
-                                <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4 shadow-inner">
+                                <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100
+                                rounded-full mb-4 shadow-inner">
                                     <FiX className="w-8 h-8 text-red-600" />
                                 </div>
                                 <h3 className="text-lg font-bold text-gray-900 mb-2">Ошибка загрузки</h3>
                                 <p className="text-sm text-red-600 mb-6">{error}</p>
                                 <button
                                     onClick={handleRetry}
-                                    className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 font-semibold shadow-md hover:shadow-lg"
+                                    className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white
+                                    rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300
+                                    font-semibold shadow-md hover:shadow-lg"
                                 >
                                     Попробовать снова
                                 </button>
@@ -490,19 +508,23 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                             <>
                                 <div className="space-y-4 mb-6">
                                     <div className="relative">
-                                        <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 w-4 h-4" />
+                                        <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2
+                                        text-gray-500 w-4 h-4" />
                                         <input
                                             type="text"
                                             placeholder="Поиск категорий..."
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
-                                            className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 shadow-sm hover:shadow-md bg-white"
+                                            className="w-full pl-10 pr-10 py-3 border border-gray-200 rounded-xl
+                                            focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all
+                                            duration-300 shadow-sm hover:shadow-md bg-white"
                                             disabled={isLoading}
                                         />
                                         {searchTerm && (
                                             <button
                                                 onClick={() => setSearchTerm('')}
-                                                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500"
+                                                className="absolute right-3 top-1/2 transform -translate-y-1/2
+                                                text-gray-500"
                                             >
                                                 <FiX className="w-4 h-4" />
                                             </button>
@@ -511,16 +533,20 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
 
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div className="flex items-center space-x-3">
-                                            <div className="px-3 py-1.5 bg-blue-50 text-gray-700 rounded-lg text-sm font-semibold shadow-sm">
+                                            <div className="px-3 py-1.5 bg-blue-50 text-gray-700 rounded-lg text-sm
+                                            font-semibold shadow-sm">
                                                 Выбрано: {selectedCategories.length}/10
                                             </div>
 
                                             <button
                                                 onClick={toggleExpensiveFilter}
-                                                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 border cursor-pointer ${
+                                                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all 
+                                                duration-200 border cursor-pointer ${
                                                     expensiveFilter
-                                                        ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
-                                                        : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                                                        ? 'bg-green-50 border-green-200 text-green-700 ' +
+                                                        'hover:bg-green-100'
+                                                        : 'bg-gray-50 border-gray-200 text-gray-700 ' +
+                                                        'hover:bg-gray-100'
                                                 }`}
                                             >
                                                 Дороже 50к {expensiveFilter && '✓'}
@@ -536,7 +562,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                                         <div className="flex items-center space-x-2">
                                             <button
                                                 onClick={handleSelectAll}
-                                                disabled={isLoading || categories.length === 0}
+                                                disabled={isLoading || displayCategories.length === 0}
                                                 className="px-4 py-2 text-sm font-semibold text-blue-600
                                                 hover:text-blue-800 disabled:text-gray-400
                                                 transition-colors duration-200 cursor-pointer"
@@ -556,26 +582,37 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                                     </div>
                                 </div>
 
-                                <div className="max-h-[calc(70vh-180px)] overflow-y-auto pr-2 space-y-0.5 custom-scrollbar">
+                                <div className="max-h-[calc(70vh-180px)] overflow-y-auto pr-2
+                                space-y-0.5 custom-scrollbar">
                                     {isLoading ? (
                                         <div className="flex flex-col items-center justify-center py-12">
-                                            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
-                                            <p className="text-base text-gray-600 font-medium">Загрузка категорий...</p>
+                                            <div className="animate-spin rounded-full h-10 w-10 border-b-2
+                                            border-blue-600 mb-4"></div>
+                                            <p className="text-base text-gray-600
+                                            font-medium">
+                                                Загрузка категорий...
+                                            </p>
                                         </div>
                                     ) : !hasResults && searchTerm ? (
                                         <div className="text-center py-12">
-                                            <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4 shadow-inner">
+                                            <div className="inline-flex items-center justify-center w-16 h-16
+                                            bg-gray-100 rounded-full mb-4 shadow-inner">
                                                 <FiSearch className="w-6 h-6 text-gray-500" />
                                             </div>
-                                            <h3 className="text-lg font-bold text-gray-900 mb-2">Ничего не найдено</h3>
+                                            <h3 className="text-lg font-bold text-gray-900 mb-2">
+                                                Ничего не найдено
+                                            </h3>
                                             <p className="text-sm text-gray-600">Попробуйте изменить запрос</p>
                                         </div>
                                     ) : filteredCategories.length === 0 ? (
                                         <div className="text-center py-12">
-                                            <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4 shadow-inner">
+                                            <div className="inline-flex items-center justify-center w-16 h-16
+                                            bg-gray-100 rounded-full mb-4 shadow-inner">
                                                 <TbCategory className="w-8 h-8 text-gray-500" />
                                             </div>
-                                            <h3 className="text-lg font-bold text-gray-900 mb-2">Категории отсутствуют</h3>
+                                            <h3 className="text-lg font-bold text-gray-900 mb-2">
+                                                Категории отсутствуют
+                                            </h3>
                                             <p className="text-sm text-gray-600">В этом каталоге нет категорий</p>
                                         </div>
                                     ) : (
@@ -613,10 +650,12 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                                 <button
                                     onClick={handleSubmit}
                                     disabled={selectedCategories.length === 0 || !catalogId}
-                                    className={`px-5 py-2 rounded-lg font-semibold transition-all duration-300 shadow-md hover:shadow-lg ${
+                                    className={`px-5 py-2 rounded-lg font-semibold transition-all duration-300 
+                                    shadow-md hover:shadow-lg ${
                                         selectedCategories.length === 0 || !catalogId
                                             ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                            : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800'
+                                            : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white ' +
+                                            'hover:from-blue-700 hover:to-blue-800'
                                     }`}
                                 >
                                     Применить
