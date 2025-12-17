@@ -1,38 +1,143 @@
 export interface Catalog {
-    name: string;
-}
-
-export interface ParseYandexResponse {
-    message: string;
-}
-
-export interface YandexSource {
-    url: string;
-    price: number;
-    marketplace?: string;
-    diffPercent?: number;
-}
-
-export interface Product {
     id: number;
-    netlab_id: number;
-    part_number: string;
     name: string;
-    netlab_price: number;
-    yandex_sources: YandexSource[];
+    categoriesCount: number;
+    productsCount: number;
 }
 
 export interface Category {
     id: number;
     name: string;
+    parent_id: number | null;
+    leaf: boolean;
+    products: Product[];
+    children: Category[];
+}
+
+export interface CategoryOnly {
+    id: number;
+    name: string;
     parent_id: number;
     leaf: boolean;
-    children: Category[];
+    children: CategoryOnly[];
+}
+
+export interface Product {
+    id: number;
+    netlab_id: number;
+    availableKurskaya: number;
+    availableTransit: number;
+    availableKaluzhskaya: number;
+    availableLobnenskaya: number;
+    guarantee: string;
+    manufacturer: string;
+    isDiscontinued: boolean;
+    isDeleted: boolean;
+    priceCategoryN: number;
+    priceCategoryF: number;
+    priceCategoryE: number;
+    priceCategoryD: number;
+    priceCategoryC: number;
+    priceCategoryB: number;
+    priceCategoryA: number;
+    rrc: number;
+    volume: number;
+    weight: number;
+    tax: string;
+    part_number: string;
+    name: string;
+    traceable_good: number;
+    category_id: number;
+    yandex_sources: YandexSource[];
+}
+
+export type PriceField =
+    | 'priceCategoryN'
+    | 'priceCategoryF'
+    | 'priceCategoryE'
+    | 'priceCategoryD'
+    | 'priceCategoryC'
+    | 'priceCategoryB'
+    | 'priceCategoryA';
+
+export interface Tab {
+    id: number;
+    name: string;
+    path: string;
+}
+
+export interface PriceType {
+    id: number;
+    name: string;
+    value: PriceField;
+}
+
+export interface YandexSource {
+    id: number;
+    retail_price: number;
+    legal_entities_price: number;
+    url: string;
+    source_name: string;
+}
+
+export interface CatalogShort {
+    id: number;
+    name: string;
+}
+
+export interface CategoriesResponse {
+    catalog: CatalogShort;
+    categories: Category[];
+}
+
+export interface ProductResponse {
+    product: Product[];
+    yandex_sources: YandexSource[];
+}
+
+export interface YandexParseResponse {
+    id: number;
+    retail_price: number | null;
+    legal_entities_price: number | null;
+    before_discount_price: number | null;
+    url: string;
+    source_name: string;
+}
+
+export interface SpecificCategoryResponse {
+    id: number;
+    name: string;
+    parent_id: number | null;
+    leaf: boolean;
     products: Product[];
 }
 
-export interface CatalogDetail {
+export type SpecificCategoriesResponse = SpecificCategoryResponse[];
+
+export type CategoryStats = {
+    category_id: number;
+    total_products: number;
+    has_yandex_sources: number;
+};
+
+export interface CategoriesStatsRequest {
+    category_ids: number[];
+}
+
+export type PriceTypeList = 'N'|'F'|'E'|'D'|'C'|'B'|'A';
+
+export interface ExpensiveProductsParams {
+    category_ids: number[];
+    price_type: PriceType;
+    currency_rate: number;
+}
+
+export interface ExpensiveProductsResponse {
     id: number;
     name: string;
-    categories: Category[];
+    parent_id: number | null;
+    leaf: boolean;
+    currency_rate: number;
+    price_type: string;
+    products: ProductResponse[];
 }

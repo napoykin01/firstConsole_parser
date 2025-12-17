@@ -1,149 +1,252 @@
-import * as React from 'react'
-import { useEffect, useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react'
+import Header from '../components/Header'
+import ProductsTable from '../components/ProductsTable'
+// import StatsPanel from '../components/StatsPanel'
+import type {
+    Catalog,
+    PriceField,
+    Category,
+    Product,
+    SpecificCategoryResponse,
+    SpecificCategoriesResponse
+} from '../types/types';
 import { apiService } from '../services/apiService'
-import { TreeRow } from '../components/TreeRow'
-import { ProductTable } from '../components/ProductTable'
-import { useCategoryToggle } from '../hooks/useCategoryToggle'
-import { calcPriceDiff } from '../utils/priceUtils'
-import type { Catalog, Category } from '../types/types'
-import type { UiCategory } from '../types/dashboard'
 
-const buildUiTree = (cats: Category[], rate: number): UiCategory[] =>
-    cats.map((c) => ({
-        ...c,
-        children: c.children ? buildUiTree(c.children, rate) : undefined,
-        products: c.products?.map((p) => ({
-            ...p,
-            priceDiff: calcPriceDiff(p.netlab_price, p.yandex_sources ?? [], rate),
-        })),
-    }));
-
-export const Dashboard: React.FC = () => {
+const Dashboard: React.FC = () => {
+    const [exchangeRate, setExchangeRate] = useState<number>(80.00);
+    const [selectedPriceType, setSelectedPriceType] = useState<PriceField>('priceCategoryA');
+    const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
+    const [selectedCatalog, setSelectedCatalog] = useState<number | null>(null);
     const [catalogs, setCatalogs] = useState<Catalog[]>([]);
-    const [selectedCatalog, setSelectedCatalog] = useState<Catalog | null>(null);
-    const [tree, setTree] = useState<UiCategory[]>([]);
-    const [rate, setRate] = useState<number>(90);
-    const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-    const [parsed, setParsed] = useState<Record<number, boolean>>({});
+    const [categoriesData, setCategoriesData] = useState<Category[]>([]);
+    const [products, setProducts] = useState<Product[]>([]);
+    const [loading, setLoading] = useState({
+        catalogs: true,
+        categories: false
+    });
+    const [updatingProducts, setUpdatingProducts] = useState<Set<number>>(new Set());
+    const [updatingCategories, setUpdatingCategories] = useState<Set<number>>(new Set());
 
-    const { toggle, loading } = useCategoryToggle(rate);
-
-    useEffect(() => {
-        apiService.getCatalogs().then(setCatalogs);
+    const convertToCategories = useCallback((specificCategories: SpecificCategoriesResponse): Category[] => {
+        return specificCategories.map((cat: SpecificCategoryResponse) => ({
+            id: cat.id,
+            name: cat.name,
+            parent_id: cat.parent_id,
+            leaf: cat.leaf,
+            products: cat.products || [],
+            children: []
+        }));
     }, []);
 
-    useEffect(() => {
-        if (!selectedCatalog) return;
-        apiService
-            .getCatalogDetail(selectedCatalog.name)
-            .then(detail => setTree(buildUiTree(detail.categories, rate)));
-    }, [selectedCatalog, rate]);
+    const fetchCatalogs = useCallback(async (): Promise<void> => {
+        try {
+            setLoading(prev => ({ ...prev, catalogs: true }));
+            const data = await apiService.getCatalogs();
+            setCatalogs(data);
 
-    const handleToggle = async (cat: UiCategory) => {
-        const isExpanded = expanded[cat.id];
-        setExpanded((o) => ({ ...o, [cat.id]: !isExpanded }));
-
-        if (!isExpanded && !parsed[cat.id]) {
-            await toggle(cat, (upd) => replaceInTree(upd));
-            setParsed(o => ({ ...o, [cat.id]: true }));
+            if (data.length > 0) {
+                setSelectedCatalog(data[0].id);
+            }
+        } catch (error) {
+            console.error('Error fetching catalogs:', error);
+        } finally {
+            setLoading(prev => ({ ...prev, catalogs: false }));
         }
-    };
+    }, []);
 
-    const replaceInTree = (upd: UiCategory) =>
-        setTree((prev) => walkAndReplace(prev, upd, rate));
+    const reloadSelectedCategories = useCallback(async (): Promise<void> => {
+        if (!selectedCatalog || selectedCategories.length === 0) {
+            setCategoriesData([]);
+            setProducts([]);
+            return;
+        }
 
-    const walkAndReplace = (nodes: UiCategory[], target: UiCategory, rate: number): UiCategory[] =>
-        nodes.map((n) =>
-            n.id === target.id
-                ? {
-                    ...target,
-                    products: target.products?.map(p => ({
-                        ...p,
-                        priceDiff: calcPriceDiff(p.netlab_price, p.yandex_sources ?? [], rate),
-                    })),
-                }
-                : { ...n, children: n.children ? walkAndReplace(n.children, target, rate) : undefined }
-        );
+        const selectedCatalogObj = catalogs.find(c => c.id === selectedCatalog);
+        if (!selectedCatalogObj) return;
+
+        try {
+            setLoading(prev => ({ ...prev, categories: true }));
+
+            const specificCategories: SpecificCategoriesResponse = await apiService.getSpecificCategoriesWithProducts(
+                selectedCatalogObj.name,
+                selectedCategories
+            );
+
+            const convertedCategories = convertToCategories(specificCategories);
+            setCategoriesData(convertedCategories);
+
+            const allProducts = convertedCategories.flatMap(cat => cat.products || []);
+            setProducts(allProducts);
+        } catch (error) {
+            console.error('Error reloading categories:', error);
+            setCategoriesData([]);
+            setProducts([]);
+        } finally {
+            setLoading(prev => ({ ...prev, categories: false }));
+        }
+    }, [selectedCatalog, selectedCategories, catalogs, convertToCategories]);
+
+    useEffect(() => {
+        void fetchCatalogs();
+    }, [fetchCatalogs]);
+
+    useEffect(() => {
+        const fetchProductsByCategories = async (): Promise<void> => {
+            if (!selectedCatalog || selectedCategories.length === 0) {
+                setCategoriesData([]);
+                setProducts([]);
+                return;
+            }
+
+            try {
+                setLoading(prev => ({ ...prev, categories: true }));
+
+                const selectedCatalogObj = catalogs.find(c => c.id === selectedCatalog);
+                if (!selectedCatalogObj) return;
+
+                const specificCategories: SpecificCategoriesResponse = await apiService.getSpecificCategoriesWithProducts(
+                    selectedCatalogObj.name,
+                    selectedCategories
+                );
+
+                const convertedCategories = convertToCategories(specificCategories);
+                setCategoriesData(convertedCategories);
+
+                const allProducts = convertedCategories.flatMap(cat => cat.products || []);
+                setProducts(allProducts);
+
+            } catch (error) {
+                console.error('Error fetching specific categories:', error);
+                setCategoriesData([]);
+                setProducts([]);
+            } finally {
+                setLoading(prev => ({ ...prev, categories: false }));
+            }
+        };
+
+        void fetchProductsByCategories();
+    }, [selectedCatalog, selectedCategories, catalogs, convertToCategories, selectedPriceType]);
+
+    const handleExchangeRateChange = useCallback((rate: number) => {
+        setExchangeRate(rate);
+    }, []);
+
+    const handlePriceTypeChange = useCallback((priceType: PriceField) => {
+        setSelectedPriceType(priceType);
+    }, []);
+
+    const handleCatalogChange = useCallback((catalogId: number) => {
+        setSelectedCatalog(catalogId);
+        setSelectedCategories([]); // Сбрасываем выбранные категории
+        setCategoriesData([]);
+        setProducts([]);
+    }, []);
+
+    const handleFilterChange = useCallback((categories: number[]) => {
+        setSelectedCategories(categories);
+    }, []);
+
+    const handleUpdateProductData = useCallback(async (productId: number): Promise<void> => {
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+
+        setUpdatingProducts(prev => new Set([...prev, productId]));
+
+        try {
+            await apiService.parseYandexPartNumber(product.part_number);
+            await reloadSelectedCategories();
+        } catch (error) {
+            console.error('Error updating product data:', error);
+        } finally {
+            setUpdatingProducts(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(productId);
+                return newSet;
+            });
+        }
+    }, [products, reloadSelectedCategories]);
+
+    const handleUpdateCategoryData = useCallback(async (categoryId: number): Promise<void> => {
+        const category = categoriesData.find(c => c.id === categoryId);
+        if (!category) return;
+
+        setUpdatingCategories(prev => new Set([...prev, categoryId]));
+
+        try {
+            const categoryProducts = category.products || [];
+            for (const product of categoryProducts) {
+                await apiService.parseYandexPartNumber(product.part_number);
+            }
+
+            await reloadSelectedCategories();
+        } catch (error) {
+            console.error('Error updating category data:', error);
+        } finally {
+            setUpdatingCategories(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(categoryId);
+                return newSet;
+            });
+        }
+    }, [categoriesData, reloadSelectedCategories]);
+
+    const getSelectedCatalogName = useCallback((): string => {
+        if (!selectedCatalog) return 'Не выбран';
+        const catalog = catalogs.find(c => c.id === selectedCatalog);
+        return catalog?.name || 'Не найден';
+    }, [selectedCatalog, catalogs]);
 
     return (
-        <div className="max-w-svw mx-auto p-6 space-y-6">
-            <h1 className="text-2xl font-semibold text-gray-800">Сравнение цен</h1>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+            <Header
+                onExchangeRateChange={handleExchangeRateChange}
+                onPriceTypeChange={handlePriceTypeChange}
+                onCatalogChange={handleCatalogChange}
+                onFilterChange={handleFilterChange}
+            />
 
-            <div className="flex items-center gap-4">
-                <label className="text-sm text-gray-600">Курс USD/₽</label>
-                <input
-                    type="number"
-                    value={rate}
-                    onChange={(e) => setRate(Number(e.target.value))}
-                    className="w-24 px-2 py-1 border rounded"
-                />
-            </div>
-
-            <div className="flex gap-2">
-                {catalogs.map((c) => (
-                    <button
-                        key={c.name}
-                        onClick={() => setSelectedCatalog(c)}
-                        className={`px-3 py-1.5 rounded text-sm ${selectedCatalog?.name === c.name ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
-                    >
-                        {c.name}
-                    </button>
-                ))}
-            </div>
-
-            <section className="bg-white rounded-lg shadow-sm border">
-                <div className="p-3 border-b text-gray-500 text-sm">Категории / товары</div>
-                <div className="p-2 space-y-1">
-                    {tree.map((node) => (
-                        <CategoryNode
-                            key={node.id}
-                            cat={node}
-                            depth={0}
-                            expanded={expanded}
-                            loading={loading}
-                            parsed={parsed}
-                            onToggle={handleToggle}
-                        />
-                    ))}
+            <main className="container mx-auto px-4 py-6">
+                <div className="mb-6">
+                    <h1 className="text-2xl font-bold text-gray-900 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text">
+                        Анализ цен товаров
+                    </h1>
+                    <p className="text-gray-600 mt-1">
+                        Сравнение цен
+                    </p>
                 </div>
-            </section>
+
+                {/* Основная таблица */}
+                <div className="mb-6">
+                    <ProductsTable
+                        categories={categoriesData}
+                        products={products}
+                        selectedPriceType={selectedPriceType}
+                        exchangeRate={exchangeRate}
+                        selectedCatalog={selectedCatalog}
+                        catalogName={getSelectedCatalogName()}
+                        onUpdateProduct={handleUpdateProductData}
+                        onUpdateCategory={handleUpdateCategoryData}
+                        updatingProducts={updatingProducts}
+                        updatingCategories={updatingCategories}
+                        loading={loading.categories}
+                    />
+                </div>
+                {/*
+                <StatsPanel
+                    products={products}
+                    categories={categoriesData}
+                    selectedCategories={selectedCategories}
+                    exchangeRate={exchangeRate}
+                    selectedPriceType={selectedPriceType}
+                    catalogName={getSelectedCatalogName()}
+                    updatingProducts={updatingProducts}
+                    updatingCategories={updatingCategories}
+                    loading={loading.categories}
+                />
+                */}
+            </main>
         </div>
     );
 };
 
-const CategoryNode: React.FC<{
-    cat: UiCategory;
-    depth: number;
-    expanded: Record<number, boolean>;
-    loading: Record<number, boolean>;
-    parsed: Record<number, boolean>;
-    onToggle: (c: UiCategory) => void;
-}> = ({ cat, depth, expanded, loading, parsed, onToggle }) => {
-    const isExpanded = expanded[cat.id];
-    const isLoading = loading[cat.id];
-
-    return (
-        <>
-            <TreeRow
-                depth={depth}
-                category={cat}
-                expanded={isExpanded}
-                loading={isLoading}
-                onToggle={() => onToggle(cat)}
-            />
-            {isExpanded && cat.products && <ProductTable products={cat.products} />}
-            {isExpanded &&
-                cat.children?.map((ch) => (
-                    <CategoryNode
-                        key={ch.id}
-                        cat={ch}
-                        depth={depth + 1}
-                        expanded={expanded}
-                        loading={loading}
-                        parsed={parsed}
-                        onToggle={onToggle}
-                    />
-                ))}
-        </>
-    );
-};
+export default Dashboard;

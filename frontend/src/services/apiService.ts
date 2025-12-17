@@ -1,5 +1,12 @@
 import axios, { type AxiosInstance } from 'axios'
-import type {Catalog, CatalogDetail, Category, ParseYandexResponse, Product} from '../types/types.ts'
+import type {
+    Catalog,
+    CategoriesResponse, CategoriesStatsRequest,
+    CategoryOnly, CategoryStats, PriceTypeList,
+    ProductResponse,
+    SpecificCategoriesResponse,
+    YandexParseResponse
+} from '../types/types'
 
 class ApiService {
     private apiClient: AxiosInstance;
@@ -14,7 +21,7 @@ class ApiService {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
             },
-            timeout: 10000,
+            timeout: 5000,
         });
 
         this.apiClient.interceptors.response.use(
@@ -28,7 +35,8 @@ class ApiService {
 
     async getCatalogs(): Promise<Catalog[]> {
         try {
-            const response = await this.apiClient.get<Catalog[]>('/catalogs');
+            const response
+                = await this.apiClient.get<Catalog[]>('/public/get-catalogs');
             return response.data;
         } catch (error) {
             console.error('Error fetching catalogs:', error);
@@ -36,121 +44,165 @@ class ApiService {
         }
     }
 
-    async getCatalogDetail(catalogName: string): Promise<CatalogDetail> {
+    async getCategoriesFromCatalog(): Promise<CategoriesResponse[]> {
         try {
-            const encodedCatalogName = encodeURIComponent(catalogName);
-            const response =
-                await this.apiClient.get<CatalogDetail>(`/catalog/${encodedCatalogName}`);
+            const response
+                = await this.apiClient.get<CategoriesResponse[]>('/public/get-catalogs');
             return response.data;
         } catch (error) {
-            console.error(`Error fetching catalog detail for "${catalogName}":`, error);
+            console.error('Error fetching categories:', error);
             throw error;
         }
     }
 
-    async getAllProductsFromCatalog(catalogName: string): Promise<Product[]> {
+    async getCategoriesAndProductsByCatalog(catalogName: string): Promise<CategoriesResponse[]> {
         try {
-            const catalogDetail = await this.getCatalogDetail(catalogName);
-            return this.extractAllProducts(catalogDetail.categories);
+            const response
+                = await this.apiClient.get<CategoriesResponse[]>
+            (`/public/get-categories-and-products/${catalogName}`);
+            return response.data;
         } catch (error) {
-            console.error(`Error fetching all products from catalog "${catalogName}":`, error);
+            console.error('Error fetching categories:', error);
             throw error;
         }
     }
 
-    private extractAllProducts(categories: Category[]): Product[] {
-        let allProducts: Product[] = [];
-
-        categories.forEach(category => {
-            if (category.products && category.products.length > 0) {
-                allProducts = [...allProducts, ...category.products];
-            }
-
-            if (category.children && category.children.length > 0) {
-                const childProducts = this.extractAllProducts(category.children);
-                allProducts = [...allProducts, ...childProducts];
-            }
-        });
-
-        return allProducts;
+    async getCategoriesByCatalog(catalogName: string): Promise<CategoryOnly[]> {
+        try {
+            const response
+                = await this.apiClient.get<CategoryOnly[]>
+            (`/public/get-categories/${catalogName}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching categories:', error);
+            throw error;
+        }
     }
 
-    async getProductsWithYandexSources(catalogName: string): Promise<Product[]> {
+    async getProductsByCategoryId(categoryId: string): Promise<ProductResponse[]> {
         try {
-            const allProducts = await this.getAllProductsFromCatalog(catalogName);
-            return allProducts.filter(product =>
-                product.yandex_sources && product.yandex_sources.length > 0
+            const response
+                = await this.apiClient.get<ProductResponse[]>
+            (`/public/get-products-by-categoryid/${categoryId}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching categories:', error);
+            throw error;
+        }
+    }
+
+    async parseYandexPartNumber(partNumber: string): Promise<YandexParseResponse[]> {
+        try {
+            const encodedPartNumber = encodeURIComponent(partNumber);
+            console.log('Making parse request for:', partNumber, 'encoded:', encodedPartNumber);
+
+            const response = await this.apiClient.post<YandexParseResponse[]>(
+                `/yandex-search/search/async/${encodedPartNumber}`
             );
-        } catch (error) {
-            console.error(`Error fetching products with Yandex sources from catalog "${catalogName}":`, error);
-            throw error;
-        }
-    }
-
-    async getTotalProductsCount(catalogName: string): Promise<number> {
-        try {
-            const allProducts = await this.getAllProductsFromCatalog(catalogName);
-            return allProducts.length;
-        } catch (error) {
-            console.error(`Error getting total products count for catalog "${catalogName}":`, error);
-            throw error;
-        }
-    }
-
-    async getProductsByCategory(categoryId: number): Promise<Product[]> {
-        try {
-            const response = await this.apiClient.get<Product[]>(`/products_by_category/${categoryId}`);
             return response.data;
         } catch (error) {
-            console.error(`Error fetching products for category ID ${categoryId}:`, error);
+            console.error('Error fetching Yandex parse data:', error);
+            if (axios.isAxiosError(error)) {
+                console.error('Parse error details:', {
+                    url: error.config?.url,
+                    method: error.config?.method,
+                    status: error.response?.status,
+                    data: error.response?.data,
+                    message: error.response?.data?.detail || error.message
+                });
+            }
             throw error;
         }
     }
 
-    async parseYandexSources(categoryId: number): Promise<ParseYandexResponse> {
+    async getSpecificCategoriesWithProducts(
+        catalogName: string,
+        categoryIds: number[]
+    ): Promise<SpecificCategoriesResponse> {
         try {
-            const response = await this.apiClient.post<ParseYandexResponse>(
-                `/parse_yandex/${categoryId}`,
+            const params = new URLSearchParams();
+            categoryIds.forEach(id => {
+                params.append('category_ids', id.toString());
+            });
+
+            const response = await this.apiClient.post<SpecificCategoriesResponse>(
+                `/public/get-specific-categories-with-products/${encodeURIComponent(catalogName)}`,
                 {},
                 {
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
+                    params: params
                 }
             );
 
-            console.log(`Парсинг Яндекс источников для категории ${categoryId} завершен:`, response.data.message);
             return response.data;
-
         } catch (error) {
-            console.error(`Error parsing Yandex sources for category ID ${categoryId}:`, error);
+            console.error('Error fetching specific categories with products:', error);
+            if (axios.isAxiosError(error)) {
+                console.error('Error details:', {
+                    status: error.response?.status,
+                    statusText: error.response?.statusText,
+                    data: error.response?.data,
+                    config: {
+                        url: error.config?.url,
+                        method: error.config?.method,
+                        params: error.config?.params,
+                        data: error.config?.data
+                    }
+                });
+            }
             throw error;
         }
     }
 
-    async parseAndGetProductsWithYandex(categoryId: number, waitForUpdate: boolean = false): Promise<Product[]> {
+    async getCategoriesStats(
+        catalogName: string,
+        categoryIds: number[]
+    ): Promise<CategoryStats[]> {
         try {
-            const parseResult = await this.parseYandexSources(categoryId);
-            console.log(parseResult.message);
+            const requestData: CategoriesStatsRequest = {
+                category_ids: [...new Set(categoryIds)]
+            };
 
-            if (waitForUpdate) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-
-            const updatedProducts = await this.getProductsByCategory(categoryId);
-
-            return updatedProducts.filter(product =>
-                product.yandex_sources && product.yandex_sources.length > 0
+            const response = await this.apiClient.post<CategoryStats[]>(
+                `/public/get-categories-stats/${encodeURIComponent(catalogName)}`,
+                requestData
             );
 
+            return response.data;
         } catch (error) {
-            console.error(`Error in parseAndGetProductsWithYandex for category ID ${categoryId}:`, error);
+            console.error('Error fetching categories stats:', error);
+            if (axios.isAxiosError(error)) {
+                console.error('Error details:', {
+                    status: error.response?.status,
+                    statusText: error.response?.statusText,
+                    data: error.response?.data,
+                    config: {
+                        url: error.config?.url,
+                        method: error.config?.method,
+                        params: error.config?.params,
+                        data: error.config?.data
+                    }
+                });
+            }
             throw error;
         }
     }
 
-    async parseAndReturnProducts(categoryId: number): Promise<Product[]> {
-        const { data } = await this.apiClient.post<Product[]>(`/parse_and_return/${categoryId}`);
+    async getExpensiveProducts(
+        catalogName: string,
+        categoryIds: number[],
+        priceType: PriceTypeList,
+        currencyRate: number
+    ): Promise<SpecificCategoriesResponse> {
+        const params = new URLSearchParams();
+        categoryIds.forEach(id => params.append('category_ids', id.toString()));
+        params.append('price_type', priceType);
+        params.append('currency_rate', currencyRate.toString());
+
+        const { data } = await this.apiClient.post<SpecificCategoriesResponse>(
+            `/public/get-expensive-products/${encodeURIComponent(catalogName)}`,
+            {},
+            { params }
+        );
         return data;
     }
 }

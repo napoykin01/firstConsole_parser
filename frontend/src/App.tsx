@@ -1,4 +1,4 @@
-import { Dashboard } from './pages/Dashboard';
+import Dashboard from './pages/Dashboard'
 
 function App() {
     return (
@@ -9,4 +9,5 @@ function App() {
         </main>
     );
 }
+
 export default App;
