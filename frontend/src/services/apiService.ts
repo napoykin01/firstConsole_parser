@@ -2,7 +2,7 @@ import axios, { type AxiosInstance } from 'axios'
 import type {
     Catalog,
     CategoriesResponse, CategoriesStatsRequest,
-    CategoryOnly, CategoryStats, PriceTypeList,
+    CategoryOnly, CategoryStats, ExpensiveProductResponse, PriceField,
     ProductResponse,
     SpecificCategoriesResponse,
     YandexParseResponse
@@ -189,21 +189,22 @@ class ApiService {
 
     async getExpensiveProducts(
         catalogName: string,
+        currencyRate: number,
         categoryIds: number[],
-        priceType: PriceTypeList,
-        currencyRate: number
-    ): Promise<SpecificCategoriesResponse> {
-        const params = new URLSearchParams();
-        categoryIds.forEach(id => params.append('category_ids', id.toString()));
-        params.append('price_type', priceType);
-        params.append('currency_rate', currencyRate.toString());
-
-        const { data } = await this.apiClient.post<SpecificCategoriesResponse>(
-            `/public/get-expensive-products/${encodeURIComponent(catalogName)}`,
-            {},
-            { params }
+        priceType: PriceField
+    ): Promise<ExpensiveProductResponse[]> {
+        const response = await axios.post<ExpensiveProductResponse[]>(
+            `/public/get-expensive-products/${catalogName}`,
+            null,
+            {
+                params: {
+                    currency_rate: currencyRate,
+                    category_ids: categoryIds.join(','),
+                    price_type: priceType
+                }
+            }
         );
-        return data;
+        return response.data;
     }
 }
 

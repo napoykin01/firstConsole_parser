@@ -32,6 +32,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
     const [catsStats, setCatsStats] = useState<Map<number, CategoryStats>>(new Map());
     const [statsLoaded, setStatsLoaded] = useState(false);
     const [catalogs, setCatalogs] = useState<Catalog[]>([]);
+    const [expensiveFilter, setExpensiveFilter] = useState(false);
 
     const collectAllIds = (cats: CategoryOnly[]): number[] => {
         const ids: number[] = [];
@@ -183,6 +184,10 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
 
         void loadStats();
     }, [isOpen, catalogName, categories]);
+
+    const toggleExpensiveFilter = () => {
+        setExpensiveFilter(prev => !prev);
+    };
 
     const toggleCategory = (categoryId: number) => {
         setSelectedCategories(prev => {
@@ -509,6 +514,18 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                                             <div className="px-3 py-1.5 bg-blue-50 text-gray-700 rounded-lg text-sm font-semibold shadow-sm">
                                                 Выбрано: {selectedCategories.length}/10
                                             </div>
+
+                                            <button
+                                                onClick={toggleExpensiveFilter}
+                                                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 border cursor-pointer ${
+                                                    expensiveFilter
+                                                        ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                                                        : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                                                }`}
+                                            >
+                                                Дороже 50к {expensiveFilter && '✓'}
+                                            </button>
+
                                             {isLoading && (
                                                 <div className="flex items-center space-x-2 text-sm text-gray-600">
                                                     <FiLoader className="animate-spin w-4 h-4" />

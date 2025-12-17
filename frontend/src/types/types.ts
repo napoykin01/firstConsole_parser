@@ -124,20 +124,12 @@ export interface CategoriesStatsRequest {
     category_ids: number[];
 }
 
-export type PriceTypeList = 'N'|'F'|'E'|'D'|'C'|'B'|'A';
-
-export interface ExpensiveProductsParams {
-    category_ids: number[];
-    price_type: PriceType;
-    currency_rate: number;
-}
-
-export interface ExpensiveProductsResponse {
+export interface ExpensiveProductResponse {
     id: number;
     name: string;
     parent_id: number | null;
     leaf: boolean;
     currency_rate: number;
     price_type: string;
-    products: ProductResponse[];
+    products: Product[];
 }
