@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     NETLAB_API_URL: str
     NETLAB_LOGIN: str
     NETLAB_PASSWORD: str
+    BACKEND_URL: str
+
+    YA_ID_KEY: str
+    YA_API_KEY: str
+    FOLDER_ID: str
 
 
 settings = Settings()

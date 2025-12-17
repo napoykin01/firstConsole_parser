@@ -1,18 +1,25 @@
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
-from database import engine
+from database import engine, Base
 from api.v1.routes.auth import router as auth_router
 from api.v1.routes.catalogs import router as catalogs_router
 from api.v1.routes.categories import router as categories_router
 from api.v1.routes.products import router as products_router
-from api.v1.routes.database import router as database_router
+from api.v1.routes.database import router_write as database_write
+from api.v1.routes.database import router_read as database_read
 from api.v1.routes.load_all_data import router as load_all_data_router
-from api.v1.routes.yandex_parser import router as yandex_parser_router
+from api.v1.routes.search import router as search_router
 
-from models import models
+@asynccontextmanager
+async def lifespan(app: FastAPI): # noqa
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
 
+    await engine.dispose()
 
 app = FastAPI(
     title="NetLab Parser API",
@@ -20,7 +27,8 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -41,9 +49,8 @@ app.include_router(catalogs_router, prefix="/api/v1", tags=["Данные с Net
 app.include_router(categories_router, prefix="/api/v1", tags=["Данные с Netlab"])
 app.include_router(products_router, prefix="/api/v1", tags=["Данные с Netlab"])
 
-app.include_router(database_router, prefix="/api/v1", tags=["Загрузка данных с Netlab"])
-app.include_router(load_all_data_router, prefix="/api/v1", tags=["Загрузка данных с Netlab"])
+app.include_router(database_write, prefix="/api/v1", tags=["Загрузка данных с Netlab в БД"])
+app.include_router(load_all_data_router, prefix="/api/v1", tags=["Загрузка данных с Netlab в БД"])
+app.include_router(database_read, prefix="/api/v1", tags=["Загрузка данных с БД"])
 
-app.include_router(yandex_parser_router, prefix="/api/v1", tags=["Парсинг в Яндекс"])
-
-models.Base.metadata.create_all(bind=engine)
+app.include_router(search_router, prefix="/api/v1/yandex-search", tags=["Поиск в Яндекс"])
