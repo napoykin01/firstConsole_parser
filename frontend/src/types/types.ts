@@ -97,19 +97,18 @@ export type CategoryStats = {
     category_id: number;
     total_products: number;
     has_yandex_sources: number;
+    products_with_yandex?: number;
 };
 
 export interface CategoriesStatsRequest {
     category_ids: number[];
 }
 
-export type PriceTypeArray = 'N' | 'F' | 'E' | 'D' | 'C' | 'B' | 'A';
-
 export interface CategoriesByPriceRequest {
     catalog_id: number;
     rub_cost: number;
     exchange_rate: number;
-    price_type: PriceTypeArray;
+    price_type: PriceField;
     category_ids: number[];
 }
 
@@ -117,12 +116,14 @@ export interface CategoryPriceFilterResponse {
     category_id: number;
     category_name: string;
     products_count: number;
+    products_with_yandex: number;
 }
 
 export interface ProductsByPriceRequest {
     catalog_id: number;
     rub_cost: number;
     exchange_rate: number;
-    price_type: PriceTypeArray;
+    price_type: PriceField;
+    products_with_yandex: number;
     category_ids: number[];
 }
