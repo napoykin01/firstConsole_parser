@@ -1,7 +1,6 @@
 import asyncio
 from typing import List, Dict, Any, Sequence
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pandas.core.indexes import category
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import event, select, func, delete, column, Integer, values
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,19 +11,20 @@ from api.v1.routes.auth import get_current_token
 from api.v1.routes.categories import fetch_categories
 from models.models import Category, Product, Catalog, YandexSource
 from schemas.schemas import ProductDetailResponse, YandexSourceResponse, CategoryResponse, CatalogResponse, \
-    CategoriesStatsRequest, CategoriesByPriceRequest, PriceType, ProductsByPriceRequest, CategoryPriceFilterResponse
+    CategoriesStatsRequest, CategoriesByPriceRequest, PriceType, ProductsByPriceRequest, CategoryPriceFilterResponse, \
+    CategoryIdsRequest, UnifiedFilterResponse, CategoryStats, UnifiedFilterRequest
 
 router_write = APIRouter()
 router_read = APIRouter()
 
 PRICE_TYPE_COLUMN_MAP = {
-    PriceType.N: Product.priceCategoryN,
-    PriceType.F: Product.priceCategoryF,
-    PriceType.E: Product.priceCategoryE,
-    PriceType.D: Product.priceCategoryD,
-    PriceType.C: Product.priceCategoryC,
-    PriceType.B: Product.priceCategoryB,
-    PriceType.A: Product.priceCategoryA,
+    "priceCategoryN": Product.priceCategoryN,
+    "priceCategoryF": Product.priceCategoryF,
+    "priceCategoryE": Product.priceCategoryE,
+    "priceCategoryD": Product.priceCategoryD,
+    "priceCategoryC": Product.priceCategoryC,
+    "priceCategoryB": Product.priceCategoryB,
+    "priceCategoryA": Product.priceCategoryA,
 }
 
 
@@ -510,26 +510,30 @@ async def get_categories_only_endpoint(
 
     return result
 
-@router_read.post("/public/get-specific-categories-with-products/{catalog_name}",
+
+@router_read.post("/public/get-specific-categories-with-products/{catalog_id}",
                   summary="Получить конкретные категории с товарами по ID для каталога",
                   operation_id="read_specific_categories_with_products")
 async def get_specific_categories_with_products_endpoint(
-        catalog_name: str,
-        category_ids: List[int] = Query(..., description="Список ID категорий для получения"),
+        catalog_id: int,
+        request: CategoryIdsRequest,  # ← получаем объект модели
         db: AsyncSession = Depends(get_db)
 ) -> List[Dict[str, Any]]:
+    # Извлекаем список ID из модели
+    category_ids = request.category_ids
+
     if not category_ids:
         raise HTTPException(status_code=400, detail="Список category_ids не может быть пустым")
 
-    catalog = await db.scalar(select(Catalog).filter(Catalog.name == catalog_name)) # noqa
+    catalog = await db.scalar(select(Catalog).filter(Catalog.id == catalog_id))
 
     if not catalog:
-        raise HTTPException(status_code=404, detail=f"Catalog '{catalog_name}' not found")
+        raise HTTPException(status_code=404, detail=f"Catalog '{catalog_id}' not found")
 
     categories_result = await db.scalars(
         select(Category).filter(
-            Category.id.in_(category_ids),
-            Category.catalog_id == catalog.id # noqa
+            Category.id.in_(category_ids),  # ← используем список
+            Category.catalog_id == catalog.id
         )
     )
     found_categories = categories_result.all()
@@ -539,7 +543,7 @@ async def get_specific_categories_with_products_endpoint(
     if not_found_ids:
         raise HTTPException(
             status_code=404,
-            detail=f"Categories with IDs {list(not_found_ids)} not found in catalog '{catalog_name}'"
+            detail=f"Categories with IDs {list(not_found_ids)} not found in catalog '{catalog_id}'"
         )
 
     sorted_found_categories = sorted(found_categories, key=lambda x: category_ids.index(x.id))
@@ -697,3 +701,178 @@ async def filter_products_by_price_endpoint(
     return await asyncio.gather(
         *[product_to_response(product) for product in products]
     )
+
+
+@router_read.post(
+    "/public/unified-filter",
+    summary="Универсальный фильтр с поддержкой всех параметров",
+    operation_id="unified_filter",
+    response_model=UnifiedFilterResponse
+)
+async def unified_filter_endpoint(
+    request: UnifiedFilterRequest,
+    db: AsyncSession = Depends(get_db),
+) -> UnifiedFilterResponse:
+    """
+    Универсальный фильтр, который заменяет несколько ручек:
+    1. Если указаны category_ids - работает как get-specific-categories-with-products
+    2. Если указан min_price_rub - применяет фильтрацию по цене
+    3. Поддерживает разные форматы возврата (категории с товарами или просто товары)
+    4. Возвращает статистику
+    """
+
+    # Проверяем каталог
+    catalog = await db.scalar(
+        select(Catalog).where(Catalog.id == request.catalog_id)
+    )
+    if not catalog:
+        raise HTTPException(404, detail=f"Catalog with ID {request.catalog_id} not found")
+
+    print(f"Found catalog: {catalog.name}")
+
+    # Получаем категории
+    categories_query = select(Category).where(
+        Category.catalog_id == request.catalog_id
+    )
+
+    if request.category_ids and len(request.category_ids) > 0:
+        categories_query = categories_query.where(
+            Category.id.in_(request.category_ids)
+        )
+
+    categories_result = await db.scalars(categories_query)
+    categories = categories_result.all()
+
+    if not categories:
+        return UnifiedFilterResponse(
+            success=True,
+            catalog_id=request.catalog_id,
+            catalog_name=catalog.name,
+            categories=[],
+            products=[],
+            applied_filters=request.model_dump(exclude_none=True)
+        )
+
+    category_ids = [cat.id for cat in categories]
+
+    products_query = (
+        select(Product)
+        .where(Product.category_id.in_(category_ids))
+        .options(selectinload(Product.yandex_sources))
+    )
+
+    if request.min_price_rub is not None and request.min_price_rub > 0:
+        price_type_str = request.price_type.value if hasattr(request.price_type, 'value') else str(request.price_type)
+        price_column = PRICE_TYPE_COLUMN_MAP.get(request.price_type, Product.priceCategoryA)
+        min_price_usd = request.min_price_rub / request.exchange_rate
+
+        products_query = products_query.where(
+            price_column >= min_price_usd
+        )
+
+    offset = (request.page - 1) * request.limit
+    products_query = products_query.offset(offset).limit(request.limit)
+
+    products_result = await db.scalars(products_query)
+    filtered_products = products_result.all()
+
+    all_products_query = (
+        select(Product)
+        .where(Product.category_id.in_(category_ids))
+        .options(selectinload(Product.yandex_sources))
+    )
+
+    if request.min_price_rub is not None and request.min_price_rub > 0:
+        price_type_str = request.price_type.value if hasattr(request.price_type, 'value') else str(request.price_type)
+        price_column = PRICE_TYPE_COLUMN_MAP.get(price_type_str, Product.priceCategoryA)
+        min_price_usd = request.min_price_rub / request.exchange_rate
+        all_products_query = all_products_query.where(price_column >= min_price_usd)
+
+    all_products_result = await db.scalars(all_products_query)
+    all_products = all_products_result.all()
+
+    product_responses = await asyncio.gather(
+        *[product_to_response(p) for p in filtered_products]
+    )
+
+    total_products = len(all_products)
+    products_with_sources = sum(
+        1 for p in all_products if p.yandex_sources and len(p.yandex_sources) > 0
+    )
+    total_sources = sum(
+        len(p.yandex_sources) for p in all_products if p.yandex_sources
+    )
+
+    coverage_percentage = (
+        (products_with_sources / total_products * 100) if total_products > 0 else 0.0
+    )
+
+    response_data = {
+        "success": True,
+        "catalog_id": request.catalog_id,
+        "catalog_name": catalog.name,
+        "total_categories": len(categories),
+        "total_products": total_products,
+        "total_filtered_products": len(filtered_products),
+        "products_with_sources": products_with_sources,
+        "total_sources": total_sources,
+        "coverage_percentage": round(coverage_percentage, 2),
+        "applied_filters": request.model_dump(exclude_none=True),
+        "pagination": {
+            "page": request.page,
+            "limit": request.limit,
+            "total_items": total_products,
+            "total_pages": (total_products + request.limit - 1) // request.limit
+        }
+    }
+
+    if request.include_stats:
+        category_stats = []
+        for category in categories:
+            category_products = [p for p in all_products if p.category_id == category.id]
+            cat_products_with_sources = sum(
+                1 for p in category_products if p.yandex_sources and len(p.yandex_sources) > 0
+            )
+            cat_coverage = (
+                (cat_products_with_sources / len(category_products) * 100)
+                if category_products else 0.0
+            )
+
+            category_stats.append(CategoryStats(
+                category_id=category.id,
+                category_name=category.name,
+                total_products=len(category_products),
+                products_with_sources=cat_products_with_sources,
+                coverage_percentage=round(cat_coverage, 2)
+            ))
+
+        response_data["category_stats"] = category_stats
+
+    if request.return_format == "categories":
+        # 1. товары, прошедшие фильтр, разбиты по категориям
+        products_by_category: Dict[int, List[Product]] = {
+            cat_id: [] for cat_id in category_ids
+        }
+        for p in filtered_products:
+            products_by_category[p.category_id].append(p)
+
+        # 2. строим ответ ровно один раз
+        response_categories = []
+        for category in categories:
+            prods = products_by_category.get(category.id, [])
+            product_responses = await asyncio.gather(
+                *[product_to_response(p) for p in prods]
+            )
+            response_categories.append({
+                "id": category.id,
+                "name": category.name,
+                "parent_id": category.parent_id,
+                "leaf": category.leaf,
+                "products": product_responses,
+                "children": []
+            })
+
+        response_data["categories"] = response_categories
+        response_data["products"] = None
+
+    return UnifiedFilterResponse(**response_data)

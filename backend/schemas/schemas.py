@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List
+from typing import List, Dict, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -161,3 +161,49 @@ class CategoryPriceFilterResponse(BaseModel):
     category_id: int
     category_name: str
     products_count: int
+
+class CategoryIdsRequest(BaseModel):
+    category_ids: List[int]
+
+class PriceTypeUniversal(str, Enum):
+    PRICE_CATEGORY_N = "priceCategoryN"
+    PRICE_CATEGORY_F = "priceCategoryF"
+    PRICE_CATEGORY_E = "priceCategoryE"
+    PRICE_CATEGORY_D = "priceCategoryD"
+    PRICE_CATEGORY_C = "priceCategoryC"
+    PRICE_CATEGORY_B = "priceCategoryB"
+    PRICE_CATEGORY_A = "priceCategoryA"
+
+class UnifiedFilterRequest(BaseModel):
+    catalog_id: int = Field(..., description="ID каталога")
+    category_ids: List[int] | None = Field(None, description="Список ID категорий для фильтрации")
+    min_price_rub: float | None = Field(None, ge=0, description="Минимальная цена в рублях")
+    price_type: PriceTypeUniversal = Field(PriceTypeUniversal.PRICE_CATEGORY_A, description="Тип цены для фильтрации")
+    exchange_rate: float = Field(80.0, ge=0.1, description="Курс обмена USD/RUB")
+    return_format: str = Field("categories", description="Формат возврата: 'categories' или 'products'")
+    include_stats: bool = Field(True, description="Включать ли статистику в ответ")
+    page: int = Field(1, ge=1, description="Номер страницы")
+    limit: int = Field(100, ge=1, le=500, description="Количество элементов на странице")
+
+class CategoryStats(BaseModel):
+    category_id: int
+    category_name: str
+    total_products: int
+    products_with_sources: int
+    coverage_percentage: float
+
+class UnifiedFilterResponse(BaseModel):
+    success: bool
+    catalog_id: int
+    catalog_name: str
+    categories: List[Dict[str, Any]] | None = None
+    products: List[ProductDetailResponse] | None = None
+    total_categories: int = 0
+    total_products: int = 0
+    total_filtered_products: int = 0
+    products_with_sources: int = 0
+    total_sources: int = 0
+    coverage_percentage: float = 0.0
+    applied_filters: Dict[str, Any]
+    pagination: Dict[str, Any] | None = None
+    category_stats: List[CategoryStats] | None = None
