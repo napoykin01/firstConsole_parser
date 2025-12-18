@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import Header from '../components/Header'
 import ProductsTable from '../components/ProductsTable'
-// import StatsPanel from '../components/StatsPanel'
 import type {
     Catalog,
     PriceField,
     Category,
     Product,
-    SpecificCategoryResponse,
-    SpecificCategoriesResponse
+    UnifiedFilterRequest, SpecificCategoryResponse
 } from '../types/types';
 import { apiService } from '../services/apiService'
 
@@ -26,17 +24,7 @@ const Dashboard: React.FC = () => {
     });
     const [updatingProducts, setUpdatingProducts] = useState<Set<number>>(new Set());
     const [updatingCategories, setUpdatingCategories] = useState<Set<number>>(new Set());
-
-    const convertToCategories = useCallback((specificCategories: SpecificCategoriesResponse): Category[] => {
-        return specificCategories.map((cat: SpecificCategoryResponse) => ({
-            id: cat.id,
-            name: cat.name,
-            parent_id: cat.parent_id,
-            leaf: cat.leaf,
-            products: cat.products || [],
-            children: []
-        }));
-    }, []);
+    const [minPriceFilter, setMinPriceFilter] = useState<number | null>(null);
 
     const fetchCatalogs = useCallback(async (): Promise<void> => {
         try {
@@ -44,7 +32,7 @@ const Dashboard: React.FC = () => {
             const data = await apiService.getCatalogs();
             setCatalogs(data);
 
-            if (data.length > 0) {
+            if (data.length > 0 && selectedCatalog === null) {
                 setSelectedCatalog(data[0].id);
             }
         } catch (error) {
@@ -52,80 +40,64 @@ const Dashboard: React.FC = () => {
         } finally {
             setLoading(prev => ({ ...prev, catalogs: false }));
         }
-    }, []);
+    }, [selectedCatalog]);
 
-    const reloadSelectedCategories = useCallback(async (): Promise<void> => {
+    const loadProducts = useCallback(async (): Promise<void> => {
         if (!selectedCatalog || selectedCategories.length === 0) {
             setCategoriesData([]);
             setProducts([]);
             return;
         }
 
-        const selectedCatalogObj = catalogs.find(c => c.id === selectedCatalog);
-        if (!selectedCatalogObj) return;
-
+        setLoading(p => ({ ...p, categories: true }));
         try {
-            setLoading(prev => ({ ...prev, categories: true }));
+            const payload: UnifiedFilterRequest = {
+                catalog_id: selectedCatalog,
+                category_ids: selectedCategories,
+                price_type: selectedPriceType,
+                exchange_rate: exchangeRate,
+                return_format: 'categories',
+                include_stats: true,
+                page: 1,
+                limit: 500,
+                ...(minPriceFilter && minPriceFilter > 0 && { min_price_rub: minPriceFilter }),
+            };
 
-            const specificCategories: SpecificCategoriesResponse = await apiService.getSpecificCategoriesWithProducts(
-                selectedCatalogObj.name,
-                selectedCategories
-            );
+            const res = await apiService.unifiedFilter(payload); // объект
 
-            const convertedCategories = convertToCategories(specificCategories);
-            setCategoriesData(convertedCategories);
+            const cats: Category[] = res.categories.map((c: SpecificCategoryResponse) => ({
+                id: c.id,
+                name: c.name,
+                parent_id: c.parent_id,
+                leaf: c.leaf,
+                products: c.products || [],
+                children: [],
+            }));
 
-            const allProducts = convertedCategories.flatMap(cat => cat.products || []);
-            setProducts(allProducts);
-        } catch (error) {
-            console.error('Error reloading categories:', error);
+            setCategoriesData(cats);
+            setProducts([]);
+        } catch (e) {
+            console.error(e);
             setCategoriesData([]);
             setProducts([]);
         } finally {
-            setLoading(prev => ({ ...prev, categories: false }));
+            setLoading(p => ({ ...p, categories: false }));
         }
-    }, [selectedCatalog, selectedCategories, catalogs, convertToCategories]);
+    }, [
+        selectedCatalog,
+        selectedCategories,
+        minPriceFilter,
+        exchangeRate,
+        selectedPriceType,
+    ]);
 
     useEffect(() => {
         void fetchCatalogs();
     }, [fetchCatalogs]);
 
     useEffect(() => {
-        const fetchProductsByCategories = async (): Promise<void> => {
-            if (!selectedCatalog || selectedCategories.length === 0) {
-                setCategoriesData([]);
-                setProducts([]);
-                return;
-            }
-
-            try {
-                setLoading(prev => ({ ...prev, categories: true }));
-
-                const selectedCatalogObj = catalogs.find(c => c.id === selectedCatalog);
-                if (!selectedCatalogObj) return;
-
-                const specificCategories: SpecificCategoriesResponse = await apiService.getSpecificCategoriesWithProducts(
-                    selectedCatalogObj.name,
-                    selectedCategories
-                );
-
-                const convertedCategories = convertToCategories(specificCategories);
-                setCategoriesData(convertedCategories);
-
-                const allProducts = convertedCategories.flatMap(cat => cat.products || []);
-                setProducts(allProducts);
-
-            } catch (error) {
-                console.error('Error fetching specific categories:', error);
-                setCategoriesData([]);
-                setProducts([]);
-            } finally {
-                setLoading(prev => ({ ...prev, categories: false }));
-            }
-        };
-
-        void fetchProductsByCategories();
-    }, [selectedCatalog, selectedCategories, catalogs, convertToCategories, selectedPriceType]);
+        void loadProducts();
+    }, [loadProducts]);
 
     const handleExchangeRateChange = useCallback((rate: number) => {
         setExchangeRate(rate);
@@ -137,13 +109,15 @@ const Dashboard: React.FC = () => {
 
     const handleCatalogChange = useCallback((catalogId: number) => {
         setSelectedCatalog(catalogId);
-        setSelectedCategories([]); // Сбрасываем выбранные категории
+        setSelectedCategories([]);
+        setMinPriceFilter(null);
         setCategoriesData([]);
         setProducts([]);
     }, []);
 
-    const handleFilterChange = useCallback((categories: number[]) => {
+    const handleFilterChange = useCallback((categories: number[], minPrice: number | null) => {
         setSelectedCategories(categories);
+        setMinPriceFilter(minPrice);
     }, []);
 
     const handleUpdateProductData = useCallback(async (productId: number): Promise<void> => {
@@ -154,7 +128,7 @@ const Dashboard: React.FC = () => {
 
         try {
             await apiService.parseYandexPartNumber(product.part_number);
-            await reloadSelectedCategories();
+            await loadProducts();
         } catch (error) {
             console.error('Error updating product data:', error);
         } finally {
@@ -164,9 +138,10 @@ const Dashboard: React.FC = () => {
                 return newSet;
             });
         }
-    }, [products, reloadSelectedCategories]);
+    }, [products, loadProducts]);
 
     const handleUpdateCategoryData = useCallback(async (categoryId: number): Promise<void> => {
+        // При фильтре по цене categoriesData может быть пустым
         const category = categoriesData.find(c => c.id === categoryId);
         if (!category) return;
 
@@ -178,7 +153,7 @@ const Dashboard: React.FC = () => {
                 await apiService.parseYandexPartNumber(product.part_number);
             }
 
-            await reloadSelectedCategories();
+            await loadProducts();
         } catch (error) {
             console.error('Error updating category data:', error);
         } finally {
@@ -188,7 +163,7 @@ const Dashboard: React.FC = () => {
                 return newSet;
             });
         }
-    }, [categoriesData, reloadSelectedCategories]);
+    }, [categoriesData, loadProducts]);
 
     const getSelectedCatalogName = useCallback((): string => {
         if (!selectedCatalog) return 'Не выбран';
@@ -203,6 +178,8 @@ const Dashboard: React.FC = () => {
                 onPriceTypeChange={handlePriceTypeChange}
                 onCatalogChange={handleCatalogChange}
                 onFilterChange={handleFilterChange}
+                selectedCategories={selectedCategories}
+                selectedCatalog={selectedCatalog}
             />
 
             <main className="container mx-auto px-4 py-6">
@@ -215,7 +192,6 @@ const Dashboard: React.FC = () => {
                     </p>
                 </div>
 
-                {/* Основная таблица */}
                 <div className="mb-6">
                     <ProductsTable
                         categories={categoriesData}
@@ -229,21 +205,9 @@ const Dashboard: React.FC = () => {
                         updatingProducts={updatingProducts}
                         updatingCategories={updatingCategories}
                         loading={loading.categories}
+                        minPriceFilter={minPriceFilter}
                     />
                 </div>
-                {/*
-                <StatsPanel
-                    products={products}
-                    categories={categoriesData}
-                    selectedCategories={selectedCategories}
-                    exchangeRate={exchangeRate}
-                    selectedPriceType={selectedPriceType}
-                    catalogName={getSelectedCatalogName()}
-                    updatingProducts={updatingProducts}
-                    updatingCategories={updatingCategories}
-                    loading={loading.categories}
-                />
-                */}
             </main>
         </div>
     );

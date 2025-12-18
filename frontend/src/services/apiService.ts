@@ -2,7 +2,7 @@ import axios, { type AxiosInstance } from 'axios'
 import type {
     Catalog, CategoriesByPriceRequest, CategoriesStatsRequest,
     CategoryOnly, CategoryPriceFilterResponse, CategoryStats, Product, ProductsByPriceRequest,
-    SpecificCategoriesResponse,
+    SpecificCategoriesResponse, UnifiedFilterCategoriesResponse, UnifiedFilterRequest,
     YandexParseResponse
 } from '../types/types'
 
@@ -19,7 +19,7 @@ class ApiService {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
             },
-            timeout: 5000,
+            timeout: 30000,
         });
 
         this.apiClient.interceptors.response.use(
@@ -79,38 +79,57 @@ class ApiService {
     }
 
     async getSpecificCategoriesWithProducts(
-        catalogName: string,
-        categoryIds: number[]
+        catalogId: number,
+        categoryIds: number[] = []
     ): Promise<SpecificCategoriesResponse> {
         try {
-            const params = new URLSearchParams();
-            categoryIds.forEach(id => {
-                params.append('category_ids', id.toString());
+            if (categoryIds.length === 0) {
+                console.warn('Empty categoryIds array, skipping API call');
+                return [];
+            }
+
+            console.log('Sending API request with:', {
+                catalogId,
+                categoryIds,
+                url: `/public/get-specific-categories-with-products/${catalogId}`,
             });
 
+            const data = {
+                category_ids: categoryIds
+            };
+
             const response = await this.apiClient.post<SpecificCategoriesResponse>(
-                `/public/get-specific-categories-with-products/${encodeURIComponent(catalogName)}`,
-                {},
+                `/public/get-specific-categories-with-products/${catalogId}`,
+                data,
                 {
-                    params: params
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
                 }
             );
 
+            console.log('API Response:', {
+                status: response.status,
+                dataLength: response.data?.length || 0
+            });
+
             return response.data;
         } catch (error) {
-            console.error('Error fetching specific categories with products:', error);
+            console.error('Error in getSpecificCategoriesWithProducts:', error);
             if (axios.isAxiosError(error)) {
-                console.error('Error details:', {
+                const errorData = error.response?.data;
+                console.error('Server error details:', {
                     status: error.response?.status,
-                    statusText: error.response?.statusText,
-                    data: error.response?.data,
-                    config: {
-                        url: error.config?.url,
-                        method: error.config?.method,
-                        params: error.config?.params,
-                        data: error.config?.data
-                    }
+                    detail: errorData?.detail || errorData?.message || errorData,
+                    url: error.config?.url,
+                    dataSent: error.config?.data,
                 });
+
+                if (error.response?.status === 400 &&
+                    errorData?.detail === "Список category_ids не может быть пустым") {
+                    console.warn('Backend rejected empty category_ids');
+                    return [];
+                }
             }
             throw error;
         }
@@ -190,6 +209,16 @@ class ApiService {
             }
             throw error;
         }
+    }
+
+    async unifiedFilter(
+        payload: UnifiedFilterRequest
+    ): Promise<UnifiedFilterCategoriesResponse> {
+        const { data } = await this.apiClient.post<UnifiedFilterCategoriesResponse>(
+            '/public/unified-filter',
+            payload
+        );
+        return data;
     }
 }
 

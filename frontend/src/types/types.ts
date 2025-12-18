@@ -124,6 +124,46 @@ export interface ProductsByPriceRequest {
     rub_cost: number;
     exchange_rate: number;
     price_type: PriceField;
-    products_with_yandex: number;
     category_ids: number[];
+}
+
+export interface UnifiedFilterRequest {
+    catalog_id: number;
+    category_ids: number[];
+    min_price_rub?: number;
+    max_price_rub?: number;
+    price_type: PriceField;
+    exchange_rate: number;
+    return_format: 'categories' | 'products';
+    include_stats?: boolean;
+    page?: number;
+    limit?: number;
+}
+
+export interface UnifiedFilterCategoriesResponse {
+    success: boolean;
+    catalog_id: number;
+    catalog_name: string;
+    categories: SpecificCategoryResponse[];
+    products: null;
+    total_categories: number;
+    total_products: number;
+    total_filtered_products: number;
+    products_with_sources: number;
+    total_sources: number;
+    coverage_percentage: number;
+    applied_filters: UnifiedFilterRequest;
+    pagination: {
+        page: number;
+        limit: number;
+        total_items: number;
+        total_pages: number;
+    };
+    category_stats: Array<{
+        category_id: number;
+        category_name: string;
+        total_products: number;
+        products_with_sources: number;
+        coverage_percentage: number;
+    }>;
 }

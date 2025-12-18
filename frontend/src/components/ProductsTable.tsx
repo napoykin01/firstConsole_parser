@@ -25,6 +25,7 @@ interface ProductsTableProps {
     updatingProducts: Set<number>;
     updatingCategories: Set<number>;
     loading: boolean;
+    minPriceFilter: number | null;
 }
 
 const ProductsTable: React.FC<ProductsTableProps> = ({
@@ -38,7 +39,8 @@ const ProductsTable: React.FC<ProductsTableProps> = ({
                                                          onUpdateCategory,
                                                          updatingProducts,
                                                          updatingCategories,
-                                                         loading
+                                                         loading,
+                                                         minPriceFilter
                                                      }) => {
     const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set());
     const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
@@ -67,16 +69,26 @@ const ProductsTable: React.FC<ProductsTableProps> = ({
         });
     };
 
-    const getProductsInCategory = (category: Category): Product[] => {
+    const getProductsInCategory = (category: Category, filterByPrice: boolean = false): Product[] => {
         let categoryProducts: Product[] = [];
 
         if (category.products && category.products.length > 0) {
-            categoryProducts = [...categoryProducts, ...category.products.filter(p => (p[selectedPriceType] || 0) > 0)];
+            if (filterByPrice) {
+                // Фильтруем по цене только если minPriceFilter не установлен
+                // (в режиме фильтра по цене товары уже отфильтрованы на бэкенде)
+                if (!minPriceFilter) {
+                    categoryProducts = [...categoryProducts, ...category.products.filter(p => (p[selectedPriceType] || 0) > 0)];
+                } else {
+                    categoryProducts = [...categoryProducts, ...category.products];
+                }
+            } else {
+                categoryProducts = [...categoryProducts, ...category.products];
+            }
         }
 
         if (category.children && category.children.length > 0) {
             category.children.forEach(child => {
-                categoryProducts = [...categoryProducts, ...getProductsInCategory(child)];
+                categoryProducts = [...categoryProducts, ...getProductsInCategory(child, filterByPrice)];
             });
         }
 
@@ -243,7 +255,7 @@ const ProductsTable: React.FC<ProductsTableProps> = ({
                             </div>
                         ) : (
                             <div className="text-gray-400 text-xs">—</div>
-                            )}
+                        )}
                     </td>
                     <td className="py-1.5 px-2 border border-gray-200">
                         <div className="flex items-center justify-end space-x-1">
@@ -281,7 +293,7 @@ const ProductsTable: React.FC<ProductsTableProps> = ({
                                     <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-current" />
                                 ) : (
                                     <FiRefreshCw size={12} />
-                                    )}
+                                )}
                             </button>
                         </div>
                     </td>
@@ -495,6 +507,73 @@ const ProductsTable: React.FC<ProductsTableProps> = ({
         );
     }
 
+    // ОСНОВНОЕ ИЗМЕНЕНИЕ: Обработка режима фильтра по цене
+    if (minPriceFilter && products.length > 0) {
+        return (
+            <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2 border-b border-gray-200 bg-gray-50">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-base font-bold text-gray-900 flex items-center gap-1">
+                                <FiActivity className="w-4 h-4 text-gray-800" />
+                                Товары дороже {minPriceFilter.toLocaleString()}₽
+                            </h2>
+                            <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-sm font-medium text-gray-700 select-none">
+                                    {catalogName}
+                                </span>
+                                <span className="text-gray-300">•</span>
+                                <span className="text-sm font-medium text-gray-700">
+                                    {products.length} товаров
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1 text-sm font-medium text-gray-700 bg-gray-100
+                        px-2 py-1 rounded-full">
+                                <FiDollarSign className="w-3 h-3 text-green-600" />
+                                <span>1$ = {exchangeRate.toFixed(1)}₽</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-2">
+                    <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
+                        <table className="min-w-full border-collapse table-fixed">
+                            <thead className="bg-gray-100">
+                            <tr>
+                                <th className="px-2 py-1 text-left text-xs font-bold text-gray-700 uppercase
+                                tracking-wider border border-gray-200">
+                                    Товар
+                                </th>
+                                <th className="px-2 py-1 text-right text-xs font-bold text-gray-700 uppercase
+                                tracking-wider border border-gray-200">
+                                    Наша цена
+                                </th>
+                                <th className="px-2 py-1 text-right text-xs font-bold text-gray-700 uppercase
+                                tracking-wider border border-gray-200">
+                                    Минимальная
+                                </th>
+                                <th className="px-2 py-1 text-left text-xs font-bold text-gray-700 uppercase
+                                tracking-wider border border-gray-200">
+                                    Действия
+                                </th>
+                            </tr>
+                            </thead>
+                            <tbody className="bg-white">
+                            {/* В режиме фильтра по цене ВСЕ товары уже отфильтрованы на бэкенде */}
+                            {products.map(renderProductRow)}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Обычный режим (без фильтра по цене)
     if (categories.length === 0 && products.length === 0) {
         return (
             <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
@@ -573,6 +652,7 @@ const ProductsTable: React.FC<ProductsTableProps> = ({
                             </tr>
                             </thead>
                             <tbody className="bg-white">
+                            {/* В обычном режиме фильтруем только по цене > 0 */}
                             {products.filter(p => (p[selectedPriceType] || 0) > 0).map(renderProductRow)}
                             </tbody>
                         </table>
