@@ -60,12 +60,6 @@ export type PriceField =
     | 'priceCategoryB'
     | 'priceCategoryA';
 
-export interface Tab {
-    id: number;
-    name: string;
-    path: string;
-}
-
 export interface PriceType {
     id: number;
     name: string;
@@ -78,21 +72,6 @@ export interface YandexSource {
     legal_entities_price: number;
     url: string;
     source_name: string;
-}
-
-export interface CatalogShort {
-    id: number;
-    name: string;
-}
-
-export interface CategoriesResponse {
-    catalog: CatalogShort;
-    categories: Category[];
-}
-
-export interface ProductResponse {
-    product: Product[];
-    yandex_sources: YandexSource[];
 }
 
 export interface YandexParseResponse {
@@ -122,14 +101,4 @@ export type CategoryStats = {
 
 export interface CategoriesStatsRequest {
     category_ids: number[];
-}
-
-export interface ExpensiveProductResponse {
-    id: number;
-    name: string;
-    parent_id: number | null;
-    leaf: boolean;
-    currency_rate: number;
-    price_type: string;
-    products: Product[];
 }

@@ -1,9 +1,7 @@
 import axios, { type AxiosInstance } from 'axios'
 import type {
-    Catalog,
-    CategoriesResponse, CategoriesStatsRequest,
-    CategoryOnly, CategoryStats, ExpensiveProductResponse, PriceField,
-    ProductResponse,
+    Catalog, CategoriesStatsRequest,
+    CategoryOnly, CategoryStats,
     SpecificCategoriesResponse,
     YandexParseResponse
 } from '../types/types'
@@ -44,46 +42,11 @@ class ApiService {
         }
     }
 
-    async getCategoriesFromCatalog(): Promise<CategoriesResponse[]> {
-        try {
-            const response
-                = await this.apiClient.get<CategoriesResponse[]>('/public/get-catalogs');
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching categories:', error);
-            throw error;
-        }
-    }
-
-    async getCategoriesAndProductsByCatalog(catalogName: string): Promise<CategoriesResponse[]> {
-        try {
-            const response
-                = await this.apiClient.get<CategoriesResponse[]>
-            (`/public/get-categories-and-products/${catalogName}`);
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching categories:', error);
-            throw error;
-        }
-    }
-
     async getCategoriesByCatalog(catalogName: string): Promise<CategoryOnly[]> {
         try {
             const response
                 = await this.apiClient.get<CategoryOnly[]>
             (`/public/get-categories/${catalogName}`);
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching categories:', error);
-            throw error;
-        }
-    }
-
-    async getProductsByCategoryId(categoryId: string): Promise<ProductResponse[]> {
-        try {
-            const response
-                = await this.apiClient.get<ProductResponse[]>
-            (`/public/get-products-by-categoryid/${categoryId}`);
             return response.data;
         } catch (error) {
             console.error('Error fetching categories:', error);
@@ -185,26 +148,6 @@ class ApiService {
             }
             throw error;
         }
-    }
-
-    async getExpensiveProducts(
-        catalogName: string,
-        currencyRate: number,
-        categoryIds: number[],
-        priceType: PriceField
-    ): Promise<ExpensiveProductResponse[]> {
-        const response = await axios.post<ExpensiveProductResponse[]>(
-            `/public/get-expensive-products/${catalogName}`,
-            null,
-            {
-                params: {
-                    currency_rate: currencyRate,
-                    category_ids: categoryIds.join(','),
-                    price_type: priceType
-                }
-            }
-        );
-        return response.data;
     }
 }
 
