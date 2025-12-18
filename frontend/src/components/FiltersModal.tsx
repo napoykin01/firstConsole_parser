@@ -2,13 +2,13 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { FiX, FiCheck, FiLoader, FiSearch, FiFilter } from 'react-icons/fi'
 import { TbCategory, TbCategory2 } from 'react-icons/tb'
 import { MdCategory, MdViewTimeline } from 'react-icons/md'
-import type { Catalog, CategoryOnly, CategoryStats, PriceField } from '../types/types'
+import type {Catalog, CategoryOnly, CategoryStats, PriceField} from '../types/types'
 import { apiService } from '../services/apiService'
 
 interface FiltersModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSubmit: (selectedCategories: number[]) => void;
+    onSubmit: (selectedCategories: number[], minPrice: number | null) => void;
     initialSelectedCategories: number[];
     catalogId: number | null;
     exchangeRate: number;
@@ -20,7 +20,9 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                                                        onClose,
                                                        onSubmit,
                                                        initialSelectedCategories,
-                                                       catalogId
+                                                       catalogId,
+                                                       exchangeRate,
+                                                       priceType
                                                    }) => {
     const [categories, setCategories] = useState<CategoryOnly[]>([]);
     const [displayCategories, setDisplayCategories] = useState<CategoryOnly[]>([]);
@@ -30,10 +32,12 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
     const [error, setError] = useState<string | null>(null);
     const [catalogName, setCatalogName] = useState<string>('');
     const [expandedCategories, setExpandedCategories] = useState<number[]>([]);
-    const [catsStats, setCatsStats] = useState<Map<number, CategoryStats>>(new Map());
+    const [fullCatsStats, setFullCatsStats] = useState<Map<number, CategoryStats>>(new Map());
+    const [effectiveStats, setEffectiveStats] = useState<Map<number, CategoryStats>>(new Map());
     const [statsLoaded, setStatsLoaded] = useState(false);
     const [catalogs, setCatalogs] = useState<Catalog[]>([]);
-    const [expensiveFilter, setExpensiveFilter] = useState(false);
+    const [priceInput, setPriceInput] = useState('');
+    const [appliedMinPrice, setAppliedMinPrice] = useState<number | null>(null);
 
     const collectAllIds = (cats: CategoryOnly[]): number[] => {
         const ids: number[] = [];
@@ -47,6 +51,31 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
         walk(cats);
         return ids;
     };
+
+    const filterEmptyCategories = useCallback((cats: CategoryOnly[], withProductsSet: Set<number>): CategoryOnly[] => {
+        return cats
+            .filter(cat => {
+                if (!cat) return false;
+
+                if (withProductsSet.has(cat.id)) {
+                    return true;
+                }
+
+                if (cat.children?.length) {
+                    const filteredChildren = filterEmptyCategories(cat.children, withProductsSet);
+                    if (filteredChildren.length > 0) {
+                        cat.children = filteredChildren;
+                        return true;
+                    }
+                }
+
+                return false;
+            })
+            .map(cat => ({
+                ...cat,
+                children: cat.children || []
+            }));
+    }, []);
 
     useEffect(() => {
         setSelectedCategories(initialSelectedCategories);
@@ -82,10 +111,13 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
             setDisplayCategories([]);
             setSelectedCategories([]);
             setExpandedCategories([]);
-            setCatsStats(new Map());
+            setFullCatsStats(new Map());
+            setEffectiveStats(new Map());
             setStatsLoaded(false);
             setError(null);
             setSearchTerm('');
+            setAppliedMinPrice(null);
+            setPriceInput('');
         }
     }, [catalogId]);
 
@@ -99,7 +131,8 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
         setIsLoading(true);
         setError(null);
         setExpandedCategories([]);
-        setCatsStats(new Map());
+        setFullCatsStats(new Map());
+        setEffectiveStats(new Map());
         setStatsLoaded(false);
 
         try {
@@ -145,43 +178,18 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                 const allIds = collectAllIds(categories);
                 const statsArr = await apiService.getCategoriesStats(catalogName, allIds);
 
-                const categoriesWithProducts = new Set(
+                const withProductsSet = new Set(
                     statsArr
                         .filter(stat => stat.total_products > 0)
                         .map(stat => stat.category_id)
                 );
 
-                const filterEmptyCategories
-                    = (cats: CategoryOnly[]): CategoryOnly[] => {
-                    return cats
-                        .filter(cat => {
-                            if (!cat) return false;
-
-                            if (categoriesWithProducts.has(cat.id)) {
-                                return true;
-                            }
-
-                            if (cat.children?.length) {
-                                const filteredChildren = filterEmptyCategories(cat.children);
-                                if (filteredChildren.length > 0) {
-                                    cat.children = filteredChildren;
-                                    return true;
-                                }
-                            }
-
-                            return false;
-                        })
-                        .map(cat => ({
-                            ...cat,
-                            children: cat.children || []
-                        }));
-                };
-
-                const filteredCategories = filterEmptyCategories([...categories]);
+                const filteredCategories = filterEmptyCategories([...categories], withProductsSet);
                 setDisplayCategories(filteredCategories);
 
                 const map = new Map(statsArr.map(s => [s.category_id, s]));
-                setCatsStats(map);
+                setFullCatsStats(map);
+                setEffectiveStats(map);
             } catch (e) {
                 console.error('stats error', e);
             } finally {
@@ -190,11 +198,69 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
         };
 
         void loadStats();
-    }, [isOpen, catalogName, categories]);
+    }, [isOpen, catalogName, categories, filterEmptyCategories]);
 
-    const toggleExpensiveFilter = () => {
-        setExpensiveFilter(prev => !prev);
-    };
+    useEffect(() => {
+        if (!statsLoaded || !catalogId) return;
+
+        const applyPriceFilter = async () => {
+            if (appliedMinPrice === null) {
+                setEffectiveStats(new Map(fullCatsStats));
+                const withProductsSet = new Set(
+                    Array.from(fullCatsStats.values())
+                        .filter(stat => stat.total_products > 0)
+                        .map(stat => stat.category_id)
+                );
+                const filteredCategories = filterEmptyCategories([...categories], withProductsSet);
+                setDisplayCategories(filteredCategories);
+                return;
+            }
+
+            setIsLoading(true);
+            try {
+                const allIds = collectAllIds(categories);
+                const payload = {
+                    catalog_id: catalogId,
+                    rub_cost: appliedMinPrice,
+                    exchange_rate: exchangeRate,
+                    price_type: priceType,
+                    category_ids: allIds
+                };
+                console.log(payload);
+                const response = await apiService.filterCategoriesByPrice(payload);
+
+                console.log(response);
+
+                const newMap = new Map(
+                    Array.from(fullCatsStats).map(([id, stat]) => [id, { ...stat, total_products: 0 }])
+                );
+
+                response.forEach(r => {
+                    const stat = newMap.get(r.category_id);
+                    if (stat) {
+                        newMap.set(r.category_id, {
+                            ...stat,
+                            total_products: r.products_count,
+                            has_yandex_sources: r.products_with_yandex,
+                        });
+                    }
+                });
+
+                setEffectiveStats(newMap);
+
+                const withProductsSet = new Set(response.map(r => r.category_id));
+                const filteredCategories = filterEmptyCategories([...categories], withProductsSet);
+                setDisplayCategories(filteredCategories);
+            } catch (e) {
+                console.error('Error applying price filter:', e);
+                setError('Ошибка применения фильтра по цене');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        void applyPriceFilter();
+    }, [appliedMinPrice, statsLoaded, catalogId, exchangeRate, priceType, categories, fullCatsStats, filterEmptyCategories]);
 
     const toggleCategory = (categoryId: number) => {
         setSelectedCategories(prev => {
@@ -219,12 +285,14 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
     };
 
     const handleSubmit = () => {
-        onSubmit(selectedCategories);
+        onSubmit(selectedCategories, appliedMinPrice);
         onClose();
     };
 
     const handleClearAll = () => {
         setSelectedCategories([]);
+        setAppliedMinPrice(null);
+        setPriceInput('');
     };
 
     const handleRetry = () => {
@@ -323,7 +391,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
     const renderCategoryItem = (c: CategoryOnly, level = 0) => {
         if (!c) return null;
 
-        const stat = catsStats.get(c.id);
+        const stat = effectiveStats.get(c.id);
         const isExpanded = expandedCategories.includes(c.id);
         const isSelected = selectedCategories.includes(c.id);
         const hasChildren = c.children?.length > 0;
@@ -334,7 +402,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
             : 0;
 
         const countProductsInTree = (category: CategoryOnly): number => {
-            const catStat = catsStats.get(category.id);
+            const catStat = effectiveStats.get(category.id);
             let total = catStat?.total_products || 0;
 
             if (category.children?.length) {
@@ -558,19 +626,27 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                                                 Выбрано: {selectedCategories.length}/10
                                             </div>
 
-                                            <button
-                                                onClick={toggleExpensiveFilter}
-                                                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all 
-                                                duration-200 border cursor-pointer ${
-                                                    expensiveFilter
-                                                        ? 'bg-green-50 border-green-200 text-green-700 ' +
-                                                        'hover:bg-green-100'
-                                                        : 'bg-gray-50 border-gray-200 text-gray-700 ' +
-                                                        'hover:bg-gray-100'
-                                                }`}
-                                            >
-                                                Дороже 50к {expensiveFilter && '✓'}
-                                            </button>
+                                            <div className="flex items-center space-x-2">
+                                                <input
+                                                    type="number"
+                                                    placeholder="Дороже (руб)"
+                                                    value={priceInput}
+                                                    onChange={(e) => setPriceInput(e.target.value)}
+                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 border border-gray-200 text-gray-700 hover:bg-gray-100 bg-gray-50"
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        const price = Number(priceInput);
+                                                        if (!isNaN(price) && price > 0) {
+                                                            setAppliedMinPrice(price);
+                                                            setPriceInput('');
+                                                        }
+                                                    }}
+                                                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 border cursor-pointer bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                                                >
+                                                    Применить
+                                                </button>
+                                            </div>
 
                                             {isLoading && (
                                                 <div className="flex items-center space-x-2 text-sm text-gray-600">
@@ -591,7 +667,7 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                                             </button>
                                             <button
                                                 onClick={handleClearAll}
-                                                disabled={selectedCategories.length === 0}
+                                                disabled={selectedCategories.length === 0 && appliedMinPrice === null}
                                                 className="px-4 py-2 text-sm font-semibold text-gray-600
                                                 hover:text-gray-800 disabled:text-gray-400
                                                 transition-colors duration-200 cursor-pointer"
@@ -656,6 +732,9 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
                                     </span>
                                 ) : (
                                     'Выберите категории для фильтрации'
+                                )}
+                                {appliedMinPrice && (
+                                    <span className="ml-2">Дороже {appliedMinPrice} руб</span>
                                 )}
                             </div>
                             <div className="flex items-center space-x-3">
