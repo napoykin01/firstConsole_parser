@@ -262,39 +262,61 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
             return { filteredCategories: displayCategories, hasResults: true };
         }
 
-        const searchResults: CategoryOnly[] = [];
         const searchLower = searchTerm.toLowerCase();
+        const results: CategoryOnly[] = [];
+        const parentsToExpand = new Set<number>();
 
-        const findCategories = (cats: CategoryOnly[]) => {
-            cats.forEach(cat => {
-                if (!cat) return;
+        const searchInTree = (
+            cats: CategoryOnly[],
+            parentPath: CategoryOnly[] = []): void => {
 
-                if (cat.name?.toLowerCase().includes(searchLower)) {
-                    searchResults.push(cat);
+            for (const cat of cats) {
+                if (!cat) continue;
+
+                const currentPath = [...parentPath, cat];
+                const nameMatches = cat.name?.toLowerCase().includes(searchLower) ?? false;
+
+                if (nameMatches) {
+                    currentPath.slice(0, -1).forEach(p => {
+                        if (p.id !== undefined) parentsToExpand.add(p.id);
+                    });
+
+                    let currentLevel: CategoryOnly[] = results;
+
+                    for (const node of currentPath) {
+                        let existing = currentLevel.find(c => c.id === node.id);
+
+                        if (!existing) {
+                            existing = {
+                                ...node,
+                                children: []
+                            };
+                            currentLevel.push(existing);
+                        }
+
+                        currentLevel = existing.children!;
+                    }
                 }
+
                 if (cat.children && cat.children.length > 0) {
-                    findCategories(cat.children);
+                    searchInTree(cat.children, currentPath);
                 }
-            });
+            }
         };
 
-        if (displayCategories.length > 0) {
-            findCategories(displayCategories);
+        searchInTree(displayCategories);
+
+        if (parentsToExpand.size > 0) {
+            setExpandedCategories(prev => [
+                ...new Set([...prev, ...Array.from(parentsToExpand)])
+            ]);
         }
 
-        if (searchResults.length > 0) {
-            const parentIds = new Set<number>();
-            searchResults.forEach(cat => {
-                if (cat?.parent_id) {
-                    parentIds.add(cat.parent_id);
-                }
-            });
-            setExpandedCategories(prev => [...new Set([...prev, ...Array.from(parentIds)])]);
-        }
+        const hasResults = results.length > 0;
 
         return {
-            filteredCategories: searchResults,
-            hasResults: searchResults.length > 0
+            filteredCategories: results,
+            hasResults
         };
     }, [displayCategories, searchTerm]);
 
@@ -416,12 +438,10 @@ const FiltersModal: React.FC<FiltersModalProps> = ({
         );
     };
 
-    const renderCategoryTree = (categories: CategoryOnly[], level = 0) => {
-        if (!categories || !Array.isArray(categories)) return null;
+    const renderCategoryTree = (categories: CategoryOnly[] = [], level = 0) => {
+        if (!categories || categories.length === 0) return null;
 
-        return categories
-            .filter(cat => cat)
-            .map(category => renderCategoryItem(category, level));
+        return categories.map(category => renderCategoryItem(category, level));
     };
 
     if (!isOpen) return null;
