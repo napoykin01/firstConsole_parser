@@ -1,6 +1,7 @@
 import asyncio
 from typing import List, Dict, Any, Sequence
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pandas.core.indexes import category
 from sqlalchemy import event, select, func, delete, column, Integer, values
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,10 +12,20 @@ from api.v1.routes.auth import get_current_token
 from api.v1.routes.categories import fetch_categories
 from models.models import Category, Product, Catalog, YandexSource
 from schemas.schemas import ProductDetailResponse, YandexSourceResponse, CategoryResponse, CatalogResponse, \
-    CategoriesStatsRequest, PriceType
+    CategoriesStatsRequest, CategoriesByPriceRequest, PriceType, ProductsByPriceRequest, CategoryPriceFilterResponse
 
 router_write = APIRouter()
 router_read = APIRouter()
+
+PRICE_TYPE_COLUMN_MAP = {
+    PriceType.N: Product.priceCategoryN,
+    PriceType.F: Product.priceCategoryF,
+    PriceType.E: Product.priceCategoryE,
+    PriceType.D: Product.priceCategoryD,
+    PriceType.C: Product.priceCategoryC,
+    PriceType.B: Product.priceCategoryB,
+    PriceType.A: Product.priceCategoryA,
+}
 
 
 @event.listens_for(Engine, "connect")
@@ -609,88 +620,80 @@ async def get_categories_stats_endpoint(
         for cid in unique_ids
     ]
 
+@router_read.post(
+    "/public/filter/categories-by-price",
+    summary="Категории и количество товаров дороже заданной цены",
+    operation_id="filter_categories_by_price",
+)
+async def filter_categories_by_price_endpoint(
+    request: CategoriesByPriceRequest,
+    db: AsyncSession = Depends(get_db),
+) -> List[CategoryPriceFilterResponse]:
+
+    if not request.category_ids:
+        raise HTTPException(400, detail="category_ids не может быть пустым")
+
+    price_column = PRICE_TYPE_COLUMN_MAP[request.price_type]
+
+    stmt = (
+        select(
+            Category.id.label("category_id"),
+            Category.name.label("category_name"),
+            func.count(Product.id).label("products_count"),
+        )
+        .join(Product, Product.category_id == Category.id) # noqa
+        .where(
+            Category.catalog_id == request.catalog_id,
+            Category.id.in_(request.category_ids),
+            price_column.isnot(None),
+            (price_column * request.exchange_rate) > request.rub_cost,
+        )
+        .group_by(Category.id, Category.name)
+    )
+
+    rows = (await db.execute(stmt)).all()
+
+    return [
+        CategoryPriceFilterResponse(
+            category_id=row.category_id,
+            category_name=row.category_name,
+            products_count=row.products_count,
+        )
+        for row in rows
+    ]
 
 @router_read.post(
-    "/public/get-expensive-products/{catalog_name}",
-    summary="Получить категории и товары дороже 50000 рублей по выбранному типу цены",
-    operation_id="read_expensive_products"
+    "/public/filter/products-by-price",
+    summary="Товары дороже заданной цены",
+    operation_id="filter_products_by_price",
 )
-async def get_expensive_products_endpoint(
-        catalog_name: str,
-        currency_rate: float = Query(..., gt=0, description="Курс доллара к рублю"),
-        category_ids: List[int] = Query(..., description="Список ID категорий для получения"),
-        price_type: PriceType = Query(..., description="Тип цены для сравнения"),
-        db: AsyncSession = Depends(get_db)
-) -> List[Dict[str, Any]]:
-    if not category_ids:
-        raise HTTPException(status_code=400, detail="Список category_ids не может быть пустым")
+async def filter_products_by_price_endpoint(
+    request: ProductsByPriceRequest,
+    db: AsyncSession = Depends(get_db),
+) -> List[ProductDetailResponse]:
 
-    if currency_rate <= 0:
-        raise HTTPException(status_code=400, detail="Курс доллара должен быть больше 0")
+    if not request.category_ids:
+        raise HTTPException(400, detail="category_ids не может быть пустым")
 
-    catalog = await db.scalar(select(Catalog).filter(Catalog.name == catalog_name)) # noqa
-    if not catalog:
-        raise HTTPException(status_code=404, detail=f"Catalog '{catalog_name}' not found")
+    price_column = PRICE_TYPE_COLUMN_MAP[request.price_type]
 
-    categories_result = await db.scalars(
-        select(Category).filter(
-            Category.id.in_(category_ids),
-            Category.catalog_id == catalog.id # noqa
-        )
-    )
-    found_categories = categories_result.all()
-
-    found_ids = {cat.id for cat in found_categories}
-    not_found_ids = set(category_ids) - found_ids
-    if not_found_ids:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Categories with IDs {list(not_found_ids)} not found in catalog '{catalog_name}'"
-        )
-
-    price_column = getattr(Product, price_type.value)
-
-    expensive_products_query = (
+    stmt = (
         select(Product)
-        .filter(
-            Product.category_id.in_([cat.id for cat in found_categories]),
-            price_column > 50000
+        .join(Category, Category.id == Product.category_id) # noqa
+        .where(
+            Category.catalog_id == request.catalog_id,
+            Product.category_id.in_(request.category_ids),
+            price_column.isnot(None),
+            (price_column * request.exchange_rate) > request.rub_cost,
         )
         .options(selectinload(Product.yandex_sources))
     )
 
-    expensive_products_result = await db.scalars(expensive_products_query)
-    expensive_products = expensive_products_result.all()
+    products = (await db.scalars(stmt)).all()
 
-    products_by_category: Dict[int, List[Product]] = {}
-    for product in expensive_products:
-        if product.category_id not in products_by_category:
-            products_by_category[product.category_id] = []
-        products_by_category[product.category_id].append(product)
+    if not products:
+        return []
 
-    filtered_categories = [
-        cat for cat in found_categories
-        if cat.id in products_by_category
-    ]
-
-    sorted_filtered_categories = sorted(
-        filtered_categories,
-        key=lambda x: category_ids.index(x.id)
+    return await asyncio.gather(
+        *[product_to_response(product) for product in products]
     )
-
-    result = []
-    for cat in sorted_filtered_categories:
-        category_products = products_by_category[cat.id]
-        product_responses = await asyncio.gather(*[product_to_response(p) for p in category_products])
-
-        result.append({
-            "id": cat.id,
-            "name": cat.name,
-            "parent_id": cat.parent_id,
-            "leaf": cat.leaf,
-            "currency_rate": currency_rate,
-            "price_type": price_type.value,
-            "products": product_responses
-        })
-
-    return result

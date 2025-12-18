@@ -142,3 +142,22 @@ class PriceType(str, Enum):
     C = "priceCategoryC"
     B = "priceCategoryB"
     A = "priceCategoryA"
+
+class CategoriesByPriceRequest(BaseModel):
+    catalog_id: int
+    rub_cost: float
+    exchange_rate: float
+    price_type: PriceType
+    category_ids: List[int]
+
+class ProductsByPriceRequest(BaseModel):
+    catalog_id: int
+    rub_cost: float
+    exchange_rate: float
+    price_type: PriceType
+    category_ids: List[int]
+
+class CategoryPriceFilterResponse(BaseModel):
+    category_id: int
+    category_name: str
+    products_count: int
