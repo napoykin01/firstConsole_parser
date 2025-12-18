@@ -1,7 +1,7 @@
 import axios, { type AxiosInstance } from 'axios'
 import type {
-    Catalog, CategoriesStatsRequest,
-    CategoryOnly, CategoryStats,
+    Catalog, CategoriesByPriceRequest, CategoriesStatsRequest,
+    CategoryOnly, CategoryPriceFilterResponse, CategoryStats, Product, ProductsByPriceRequest,
     SpecificCategoriesResponse,
     YandexParseResponse
 } from '../types/types'
@@ -144,6 +144,48 @@ class ApiService {
                         params: error.config?.params,
                         data: error.config?.data
                     }
+                });
+            }
+            throw error;
+        }
+    }
+
+    async filterCategoriesByPrice(
+        payload: CategoriesByPriceRequest
+    ): Promise<CategoryPriceFilterResponse[]> {
+        try {
+            const response = await this.apiClient.post<CategoryPriceFilterResponse[]>(
+                '/public/filter/categories-by-price',
+                payload
+            );
+            return response.data;
+        } catch (error) {
+            console.error('Error filtering categories by price:', error);
+            if (axios.isAxiosError(error)) {
+                console.error('Error details:', {
+                    status: error.response?.status,
+                    data: error.response?.data,
+                });
+            }
+            throw error;
+        }
+    }
+
+    async filterProductsByPrice(
+        payload: ProductsByPriceRequest
+    ): Promise<Product[]> {
+        try {
+            const response = await this.apiClient.post<Product[]>(
+                '/public/filter/products-by-price',
+                payload
+            );
+            return response.data;
+        } catch (error) {
+            console.error('Error filtering products by price:', error);
+            if (axios.isAxiosError(error)) {
+                console.error('Error details:', {
+                    status: error.response?.status,
+                    data: error.response?.data,
                 });
             }
             throw error;

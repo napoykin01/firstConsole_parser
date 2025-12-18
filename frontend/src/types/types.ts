@@ -102,3 +102,27 @@ export type CategoryStats = {
 export interface CategoriesStatsRequest {
     category_ids: number[];
 }
+
+export type PriceTypeArray = 'N' | 'F' | 'E' | 'D' | 'C' | 'B' | 'A';
+
+export interface CategoriesByPriceRequest {
+    catalog_id: number;
+    rub_cost: number;
+    exchange_rate: number;
+    price_type: PriceTypeArray;
+    category_ids: number[];
+}
+
+export interface CategoryPriceFilterResponse {
+    category_id: number;
+    category_name: string;
+    products_count: number;
+}
+
+export interface ProductsByPriceRequest {
+    catalog_id: number;
+    rub_cost: number;
+    exchange_rate: number;
+    price_type: PriceTypeArray;
+    category_ids: number[];
+}
